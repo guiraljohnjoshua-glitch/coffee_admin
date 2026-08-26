@@ -40,8 +40,19 @@ export default function Dashboard() {
   const pendingOrders = orders.filter(o => o.status === 'pending').length;
   const deliveredOrders = orders.filter(o => o.status === 'delivered').length;
   
+  const getDrinkPrice = (variant: string) => {
+    const v = (variant || '').toLowerCase();
+    if (v.includes('classic') || v.includes('americano')) return 30;
+    return 49; // Caramel, Spanish, Mocha
+  };
+
+  const getOrderTotal = (order: Order) => {
+    if (order.total_price != null) return order.total_price;
+    return getDrinkPrice(order.product_variant) * (order.quantity || 1);
+  };
+
   const totalItemsSold = orders.filter(o => o.status !== 'cancelled').reduce((acc, curr) => acc + (curr.quantity || 1), 0);
-  const totalRevenue = orders.filter(o => o.status !== 'cancelled').reduce((acc, curr) => acc + (curr.total_price || 0), 0);
+  const totalRevenue = orders.filter(o => o.status !== 'cancelled').reduce((acc, curr) => acc + getOrderTotal(curr), 0);
 
   const stats = [
     { name: 'Total Revenue', value: formatCurrency(totalRevenue), icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-50' },
@@ -121,7 +132,7 @@ export default function Dashboard() {
                     </td>
                     <td className="px-6 py-3">
                       <p className="font-medium text-text-main">{order.product_variant}</p>
-                      <p className="text-text-muted text-xs mt-0.5">Qty: {order.quantity} {order.total_price != null ? `• ₱${order.total_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : ''}</p>
+                      <p className="text-text-muted text-xs mt-0.5">Qty: {order.quantity} • ₱{getOrderTotal(order).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
                       {order.payment_method && <p className="text-emerald-600 font-medium text-[11px] mt-0.5 uppercase tracking-wide">{order.payment_method}</p>}
                     </td>
                     <td className="px-6 py-3">

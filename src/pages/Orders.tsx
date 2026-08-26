@@ -67,6 +67,17 @@ export default function Orders() {
     }
   };
 
+  const getDrinkPrice = (variant: string) => {
+    const v = (variant || '').toLowerCase();
+    if (v.includes('classic') || v.includes('americano')) return 30;
+    return 49;
+  };
+
+  const getOrderTotal = (order: Order) => {
+    if (order.total_price != null) return order.total_price;
+    return getDrinkPrice(order.product_variant) * (order.quantity || 1);
+  };
+
   const filteredOrders = orders.filter(order => {
     const matchesSearch = 
       order.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
@@ -166,7 +177,7 @@ export default function Orders() {
                     <td className="px-6 py-3">
                       <div className="flex flex-col">
                         <span className="font-medium text-text-main">{order.product_variant}</span>
-                        <span className="text-text-muted text-xs mt-0.5">Qty: {order.quantity} {order.total_price != null ? `• ₱${order.total_price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : ''}</span>
+                        <span className="text-text-muted text-xs mt-0.5">Qty: {order.quantity} • ₱{getOrderTotal(order).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                         {order.payment_method && <span className="text-emerald-600 font-medium text-[11px] mt-0.5 uppercase tracking-wide">{order.payment_method}</span>}
                       </div>
                     </td>
