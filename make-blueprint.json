@@ -1,0 +1,147 @@
+{
+  "name": "Supabase to Google Sheets Sync",
+  "flow": [
+    {
+      "id": 1,
+      "module": "gateway:CustomWebHook",
+      "version": 1,
+      "parameters": {
+        "hook": 12345
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": -150,
+          "y": 0
+        },
+        "restore": {},
+        "parameters": [
+          {
+            "name": "hook",
+            "type": "hook:custom",
+            "label": "Webhook"
+          }
+        ],
+        "expect": []
+      }
+    },
+    {
+      "id": 2,
+      "module": "google-sheets:addARow",
+      "version": 2,
+      "parameters": {
+        "spreadsheetId": "YOUR_SPREADSHEET_ID_HERE",
+        "sheetId": "Sheet1",
+        "valueInputOption": "USER_ENTERED",
+        "insertDataOption": "INSERT_ROWS"
+      },
+      "mapper": {
+        "1": "{{1.record.id}}",
+        "2": "{{1.record.customer_name}}",
+        "3": "{{1.record.phone}}",
+        "4": "{{1.record.city}}",
+        "5": "{{1.record.address}}",
+        "6": "{{1.record.landmarked}}",
+        "7": "{{1.record.product_variant}}",
+        "8": "{{1.record.quantity}}",
+        "9": "{{1.record.status}}",
+        "10": "{{1.record.total_price}}",
+        "11": "{{1.record.payment_method}}",
+        "12": "{{1.record.created_at}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 150,
+          "y": 0
+        },
+        "restore": {
+          "expect": {
+            "spreadsheetId": {
+              "mode": "chose"
+            },
+            "sheetId": {
+              "mode": "chose"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "spreadsheetId",
+            "type": "text",
+            "label": "Spreadsheet ID"
+          },
+          {
+            "name": "sheetId",
+            "type": "text",
+            "label": "Sheet"
+          }
+        ],
+        "expect": [
+          {
+            "name": "1",
+            "type": "text",
+            "label": "A (Order ID)"
+          },
+          {
+            "name": "2",
+            "type": "text",
+            "label": "B (Customer Name)"
+          },
+          {
+            "name": "3",
+            "type": "text",
+            "label": "C (Phone)"
+          },
+          {
+            "name": "4",
+            "type": "text",
+            "label": "D (City)"
+          },
+          {
+            "name": "5",
+            "type": "text",
+            "label": "E (Address)"
+          },
+          {
+            "name": "6",
+            "type": "text",
+            "label": "F (Landmark)"
+          },
+          {
+            "name": "7",
+            "type": "text",
+            "label": "G (Product Variant)"
+          },
+          {
+            "name": "8",
+            "type": "text",
+            "label": "H (Quantity)"
+          },
+          {
+            "name": "9",
+            "type": "text",
+            "label": "I (Status)"
+          },
+          {
+            "name": "10",
+            "type": "text",
+            "label": "J (Total Price)"
+          },
+          {
+            "name": "11",
+            "type": "text",
+            "label": "K (Payment Method)"
+          },
+          {
+            "name": "12",
+            "type": "text",
+            "label": "L (Date)"
+          }
+        ]
+      }
+    }
+  ],
+  "metadata": {
+    "version": 1
+  }
+}

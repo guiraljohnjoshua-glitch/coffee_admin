@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #C68A57;
+  --color-primary-dark: #A66E41;
+  --color-bg: #F7F4EB;
+  --color-sidebar: #2A1A12;
+  --color-glass: #FFFFFF;
+  --color-border-glass: rgba(42, 26, 18, 0.08);
+  --color-text-main: #2A1A12;
+  --color-text-muted: #7A6F69;
+  --font-sans: 'Plus Jakarta Sans', sans-serif;
+  --font-serif: 'Playfair Display', serif;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-main);
+  font-family: var(--font-sans);
+}
+
+.app-container {
+  background-color: var(--color-bg);
+  background-image: radial-gradient(circle at top right, rgba(198, 138, 87, 0.08), transparent), radial-gradient(circle at bottom left, rgba(198, 138, 87, 0.05), transparent);
+  min-height: 100vh;
+}
+
+.dark-sidebar {
+  background-color: var(--color-sidebar);
+  color: #F7F4EB;
+}
+
+.glass-panel {
+  background: var(--color-glass);
+  border: 1px solid var(--color-border-glass);
+  box-shadow: 0 4px 20px rgba(42, 26, 18, 0.03);
+}
+
+.status-pending { background: #FDEEDC; color: #A8672B; }
+.status-processing { background: #EAE6DF; color: #5B524A; }
+.status-shipped { background: #E1E8D5; color: #526338; }
+.status-delivered { background: #D2E0C9; color: #3E5A2A; }
+.status-cancelled { background: #F2D5D5; color: #8A3B3B; }
