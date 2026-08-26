@@ -41,6 +41,7 @@ export default function Dashboard() {
   const deliveredOrders = orders.filter(o => o.status === 'delivered').length;
   
   const getDrinkPrice = (variant: string) => {
+    // Determine price based on variant name
     const v = (variant || '').toLowerCase();
     if (v.includes('classic') || v.includes('americano')) return 30;
     return 49; // Caramel, Spanish, Mocha
