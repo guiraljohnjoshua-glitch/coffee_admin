@@ -22,7 +22,12 @@ body {
 
 .app-container {
   background-color: var(--color-bg);
-  background-image: radial-gradient(circle at top right, rgba(198, 138, 87, 0.08), transparent), radial-gradient(circle at bottom left, rgba(198, 138, 87, 0.05), transparent);
+  background-image: 
+    linear-gradient(rgba(247, 244, 235, 0.75), rgba(247, 244, 235, 0.85)),
+    url('https://images.unsplash.com/photo-1559525839-b184a4d698c7?q=80&w=2671&auto=format&fit=crop');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
   min-height: 100vh;
 }
 

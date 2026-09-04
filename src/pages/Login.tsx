@@ -38,17 +38,8 @@ export default function Login() {
   };
 
   return (
-    <div 
-      className="min-h-screen w-full flex items-center justify-center p-4 font-sans text-text-main relative"
-      style={{
-        backgroundImage: 'url("https://images.unsplash.com/photo-1497935586351-b67a49e012bf?ixlib=rb-4.0.3&auto=format&fit=crop&w=2071&q=80")',
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-      }}
-    >
-      <div className="absolute inset-0 bg-stone-900/50 backdrop-blur-[3px]"></div>
-
-      <div className="w-full max-w-sm bg-[#fbf9f6]/95 backdrop-blur-xl p-8 rounded-[24px] shadow-2xl border border-white/50 relative z-10">
+    <div className="app-container flex items-center justify-center p-4 font-sans text-text-main">
+      <div className="w-full max-w-sm glass-panel p-8 rounded-[24px]">
         <div className="flex justify-center mb-6">
           <div className="bg-primary/10 p-3 rounded-2xl">
             <Package size={28} className="text-primary" />
