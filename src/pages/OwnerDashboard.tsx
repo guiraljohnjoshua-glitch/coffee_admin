@@ -65,6 +65,20 @@ export default function OwnerDashboard() {
     }
   };
 
+  const handleEmployeeAction = async (id: string, newStatus: string) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: newStatus as any })
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchOrders();
+    } catch (err) {
+      console.error('Error updating employee status:', err);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
@@ -128,7 +142,7 @@ export default function OwnerDashboard() {
   };
   
   orders.forEach(order => {
-    if (order.status === 'cancelled') return;
+    if (order.status === 'cancelled' || order.product_variant === 'EMPLOYEE_ACCOUNT') return;
     
     const orderDate = new Date(order.created_at);
     const total = getOrderTotal(order);
@@ -182,7 +196,7 @@ export default function OwnerDashboard() {
       let dailyOrders = 0;
       
       orders.forEach(order => {
-        if (order.status === 'cancelled') return;
+        if (order.status === 'cancelled' || order.product_variant === 'EMPLOYEE_ACCOUNT') return;
         
         const orderDate = new Date(order.created_at);
         if (orderDate.getDate() === d.getDate() && 

@@ -19,7 +19,8 @@ export default function Dashboard() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setOrders(data || []);
+      const validOrders = (data || []).filter((o: Order) => o.product_variant !== 'EMPLOYEE_ACCOUNT');
+      setOrders(validOrders);
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
