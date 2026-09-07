@@ -56,11 +56,9 @@ export default function Dashboard() {
   const totalRevenue = orders.filter(o => o.status !== 'cancelled').reduce((acc, curr) => acc + getOrderTotal(curr), 0);
 
   const stats = [
-    { name: 'Total Revenue', value: formatCurrency(totalRevenue), icon: DollarSign, color: 'text-emerald-500', bg: 'bg-emerald-50' },
     { name: 'Total Orders', value: totalOrders, icon: Package, color: 'text-blue-500', bg: 'bg-blue-50' },
     { name: 'Pending COD', value: pendingOrders, icon: Clock, color: 'text-amber-500', bg: 'bg-amber-50' },
     { name: 'Delivered', value: deliveredOrders, icon: CheckCircle, color: 'text-green-500', bg: 'bg-green-50' },
-    { name: 'Items Sold', value: totalItemsSold, icon: TrendingUp, color: 'text-purple-500', bg: 'bg-purple-50' },
   ];
 
   if (loading) {

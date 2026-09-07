@@ -9,6 +9,8 @@ import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import Settings from './pages/Settings';
 
+import OwnerDashboard from './pages/OwnerDashboard';
+
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,6 +53,7 @@ export default function App() {
         >
           <Route index element={<Dashboard />} />
           <Route path="orders" element={<Orders />} />
+          <Route path="owner" element={<OwnerDashboard />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

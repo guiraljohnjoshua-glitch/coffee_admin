@@ -6,7 +6,8 @@ import {
   Settings, 
   LogOut,
   Menu,
-  X
+  X,
+  Lock
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
@@ -42,6 +43,7 @@ export default function Layout() {
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
     { name: 'Orders', path: '/orders', icon: Package },
     { name: 'Settings', path: '/settings', icon: Settings },
+    { name: 'Owner Portal', path: '/owner', icon: Lock },
   ];
 
   return (
