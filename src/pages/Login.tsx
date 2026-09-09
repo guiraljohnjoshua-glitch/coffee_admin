@@ -37,19 +37,25 @@ export default function Login() {
         setError(error.message);
       } else {
         // Create pending employee account request in orders table
-        await supabase.from('orders').insert([{
+        const { error: insertError } = await supabase.from('orders').insert([{
           customer_name: email,
           email: email,
           phone: '',
-          city: '',
+          city: 'Unassigned', // Set default role
           address: '',
+          product_name: 'Employee Registration', // Required field
           product_variant: 'EMPLOYEE_ACCOUNT',
           quantity: 1,
           status: 'pending' // pending approval
         }]);
 
-        setMessage('Account created! The owner has been notified and needs to approve your access.');
-        setIsSignUp(false); // Switch back to login
+        if (insertError) {
+          console.error("Failed to create employee record:", insertError);
+          setError("Failed to create employee request. Please try again.");
+        } else {
+          setMessage('Account created! The owner has been notified and needs to approve your access.');
+          setIsSignUp(false); // Switch back to login
+        }
       }
     } else {
       const { error } = await supabase.auth.signInWithPassword({
@@ -58,7 +64,23 @@ export default function Login() {
       });
 
       if (error) {
-        setError(error.message);
+        if (error.message.toLowerCase().includes("invalid login credentials")) {
+          // Check if they are an employee in our system
+          const { data: employeeData } = await supabase
+            .from('orders')
+            .select('status')
+            .eq('product_variant', 'EMPLOYEE_ACCOUNT')
+            .eq('customer_name', email)
+            .single();
+            
+          if (employeeData && employeeData.status === 'processing') {
+            setError("Invalid credentials. Please double-check your password.");
+          } else {
+            setError("Invalid email or password.");
+          }
+        } else {
+          setError(error.message);
+        }
       } else {
         // Check approval status if not the owner
         if (email !== 'johnjoshuaguiral12@gmail.com') {

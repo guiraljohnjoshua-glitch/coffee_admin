@@ -50,14 +50,24 @@ export default function Orders() {
   const handleStatusUpdate = async (id: string, newStatus: OrderStatus) => {
     setUpdatingId(id);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userEmail = user?.email;
+      
+      const updateData: any = { status: newStatus };
+      
+      // If delivery is resolved, log the delivery member's email
+      if ((newStatus === 'delivered' || newStatus === 'cancelled') && userEmail) {
+        updateData.email = userEmail;
+      }
+
       const { error } = await supabase
         .from('orders')
-        .update({ status: newStatus })
+        .update(updateData)
         .eq('id', id);
 
       if (error) throw error;
       
-      const newOrders = orders.map(o => o.id === id ? { ...o, status: newStatus } : o);
+      const newOrders = orders.map(o => o.id === id ? { ...o, ...updateData } : o);
       setOrders(newOrders);
       setEditingStatus(null);
     } catch (error) {

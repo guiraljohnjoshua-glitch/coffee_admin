@@ -10,7 +10,8 @@ import {
   Lock,
   ArrowRight,
   Eye,
-  EyeOff
+  EyeOff,
+  X
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { 
@@ -81,6 +82,37 @@ export default function OwnerDashboard() {
       console.error('Error updating employee status:', err);
     }
   };
+
+  const handleEmployeeRoleChange = async (id: string, newRole: string) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ city: newRole })
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchOrders();
+    } catch (err) {
+      console.error('Error updating employee role:', err);
+    }
+  };
+
+  const handleEmployeeDelete = async (id: string) => {
+    if (!window.confirm("Are you sure you want to completely delete this employee? They will not be able to log in again.")) return;
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchOrders();
+    } catch (err) {
+      console.error('Error deleting employee:', err);
+    }
+  };
+
+  const [selectedDeliveryMember, setSelectedDeliveryMember] = useState<string | null>(null);
 
   if (!isAuthenticated) {
     return (
@@ -353,13 +385,14 @@ export default function OwnerDashboard() {
           <h2 className="text-xl font-serif font-bold text-[#2A1A12] mt-8 mb-4">Employee Management</h2>
           <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-[rgba(198,138,87,0.1)] shadow-sm overflow-hidden mb-8">
             <div className="p-6 border-b border-gray-100">
-              <p className="text-sm text-[#A89B93]">Manage employee access to the admin dashboard.</p>
+              <p className="text-sm text-[#A89B93]">Manage employee access and roles.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50/50 text-[#A89B93] font-medium">
                   <tr>
                     <th className="px-6 py-4">Employee Email</th>
+                    <th className="px-6 py-4">Role</th>
                     <th className="px-6 py-4">Status</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
@@ -367,12 +400,33 @@ export default function OwnerDashboard() {
                 <tbody className="divide-y divide-gray-100">
                   {orders.filter(o => o.product_variant === 'EMPLOYEE_ACCOUNT').length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="px-6 py-8 text-center text-[#A89B93]">No employee accounts found.</td>
+                      <td colSpan={4} className="px-6 py-8 text-center text-[#A89B93]">No employee accounts found.</td>
                     </tr>
                   ) : (
                     orders.filter(o => o.product_variant === 'EMPLOYEE_ACCOUNT').map(emp => (
                       <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-[#2A1A12]">{emp.customer_name}</td>
+                        <td className="px-6 py-4 font-medium text-[#2A1A12]">
+                          {emp.customer_name}
+                          {emp.city === 'Delivery Member' && (
+                            <button 
+                              onClick={() => setSelectedDeliveryMember(emp.customer_name)}
+                              className="block mt-1 text-xs text-primary hover:underline"
+                            >
+                              View Delivery History
+                            </button>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <select 
+                            value={emp.city || 'Unassigned'} 
+                            onChange={(e) => handleEmployeeRoleChange(emp.id, e.target.value)}
+                            className="bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-primary focus:border-primary block w-full p-2"
+                          >
+                            <option value="Unassigned">Unassigned</option>
+                            <option value="Crew Member">Crew Member</option>
+                            <option value="Delivery Member">Delivery Member</option>
+                          </select>
+                        </td>
                         <td className="px-6 py-4">
                           <span className={cn("px-3 py-1 rounded-full text-xs font-medium uppercase tracking-wide", 
                             emp.status === 'pending' ? "bg-yellow-100 text-yellow-700" : 
@@ -390,11 +444,12 @@ export default function OwnerDashboard() {
                             </>
                           )}
                           {emp.status === 'processing' && (
-                            <button onClick={() => handleEmployeeAction(emp.id, 'cancelled')} className="px-3 py-1.5 bg-red-100 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-200 transition-colors">Revoke Access</button>
+                            <button onClick={() => handleEmployeeAction(emp.id, 'cancelled')} className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs font-semibold hover:bg-orange-200 transition-colors">Revoke</button>
                           )}
                           {emp.status === 'cancelled' && (
-                            <button onClick={() => handleEmployeeAction(emp.id, 'processing')} className="px-3 py-1.5 bg-green-100 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-200 transition-colors">Restore Access</button>
+                            <button onClick={() => handleEmployeeAction(emp.id, 'processing')} className="px-3 py-1.5 bg-green-100 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-200 transition-colors">Restore</button>
                           )}
+                          <button onClick={() => handleEmployeeDelete(emp.id)} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors">Delete</button>
                         </td>
                       </tr>
                     ))
@@ -403,6 +458,42 @@ export default function OwnerDashboard() {
               </table>
             </div>
           </div>
+
+          {/* Delivery History Modal */}
+          {selectedDeliveryMember && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto shadow-xl">
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-xl font-serif font-bold text-[#2A1A12]">Delivery History: {selectedDeliveryMember}</h3>
+                  <button onClick={() => setSelectedDeliveryMember(null)} className="text-gray-400 hover:text-gray-600">
+                    <X size={24} />
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  {orders.filter(o => o.email === selectedDeliveryMember && o.product_variant !== 'EMPLOYEE_ACCOUNT').length === 0 ? (
+                    <p className="text-[#A89B93]">No deliveries recorded for this member yet.</p>
+                  ) : (
+                    orders.filter(o => o.email === selectedDeliveryMember && o.product_variant !== 'EMPLOYEE_ACCOUNT').map(order => (
+                      <div key={order.id} className="p-4 border border-gray-100 rounded-xl bg-gray-50 flex justify-between items-center">
+                        <div>
+                          <p className="font-medium text-[#2A1A12]">{order.customer_name}</p>
+                          <p className="text-sm text-[#A89B93]">{order.product_variant} - Qty: {order.quantity}</p>
+                          <p className="text-xs text-[#A89B93] mt-1">{new Date(order.created_at).toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <span className={cn("px-3 py-1 rounded-full text-xs font-medium uppercase tracking-wide", 
+                            order.status === 'delivered' ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
+                          )}>
+                            {order.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Daily Quotas */}
           <h2 className="text-xl font-serif font-bold text-[#2A1A12] mt-8 mb-4">Today's Store Progress</h2>
