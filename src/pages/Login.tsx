@@ -1,12 +1,13 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Package } from 'lucide-react';
+import { Package, Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -31,10 +32,23 @@ export default function Login() {
         email,
         password,
       });
+
       if (error) {
         setError(error.message);
       } else {
-        setMessage('Account created successfully! You can now log in.');
+        // Create pending employee account request in orders table
+        await supabase.from('orders').insert([{
+          customer_name: email,
+          email: email,
+          phone: '',
+          city: '',
+          address: '',
+          product_variant: 'EMPLOYEE_ACCOUNT',
+          quantity: 1,
+          status: 'pending' // pending approval
+        }]);
+
+        setMessage('Account created! The owner has been notified and needs to approve your access.');
         setIsSignUp(false); // Switch back to login
       }
     } else {
@@ -42,10 +56,39 @@ export default function Login() {
         email,
         password,
       });
+
       if (error) {
         setError(error.message);
       } else {
-        navigate('/');
+        // Check approval status if not the owner
+        if (email !== 'johnjoshuaguiral12@gmail.com') {
+          const { data: employeeData } = await supabase
+            .from('orders')
+            .select('status')
+            .eq('product_variant', 'EMPLOYEE_ACCOUNT')
+            .eq('customer_name', email)
+            .single();
+
+          if (employeeData && employeeData.status === 'processing') {
+            // Approved ('processing' means approved in this hack)
+            navigate('/');
+          } else if (employeeData && employeeData.status === 'pending') {
+             // Needs approval
+             setError("Your account is pending owner approval.");
+             await supabase.auth.signOut();
+          } else if (employeeData && employeeData.status === 'cancelled') {
+             // Rejected or revoked
+             setError("Your account access has been revoked or rejected.");
+             await supabase.auth.signOut();
+          } else {
+             // Not found
+             setError("Employee record not found. Please contact the owner.");
+             await supabase.auth.signOut();
+          }
+        } else {
+          // Owner is always approved
+          navigate('/');
+        }
       }
     }
     setLoading(false);
@@ -96,15 +139,25 @@ export default function Login() {
             <label className="block text-[14px] font-medium text-text-muted mb-1 ml-1" htmlFor="password">
               Password
             </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 rounded-[10px] bg-glass border border-border-glass focus:border-primary focus:ring-0 transition-all outline-none text-[14px]"
-              placeholder="••••••••"
-              required
-            />
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full pl-4 pr-12 py-3 rounded-[10px] bg-glass border border-border-glass focus:border-primary focus:ring-0 transition-all outline-none text-[14px]"
+                placeholder="••••••••"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-primary transition-colors"
+                tabIndex={-1}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
             <button
               type="submit"

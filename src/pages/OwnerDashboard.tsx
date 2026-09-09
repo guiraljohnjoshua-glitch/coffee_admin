@@ -8,7 +8,9 @@ import {
   Coffee, 
   Target,
   Lock,
-  ArrowRight
+  ArrowRight,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { 
@@ -26,6 +28,7 @@ import {
 export default function OwnerDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
   const [error, setError] = useState('');
   
   const [orders, setOrders] = useState<Order[]>([]);
@@ -90,15 +93,23 @@ export default function OwnerDashboard() {
           <p className="text-[#A89B93] text-center text-sm mb-6">Enter PIN to access store analytics</p>
           
           <form onSubmit={handleLogin} className="space-y-4">
-            <div>
+            <div className="relative">
               <input
-                type="password"
+                type={showPin ? "text" : "password"}
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
                 placeholder="Enter PIN"
-                className="w-full text-center tracking-[0.5em] text-xl px-4 py-3 bg-white/50 border border-border-glass rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
+                className="w-full text-center tracking-[0.5em] text-xl pl-10 pr-12 py-3 bg-white/50 border border-border-glass rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
                 autoFocus
               />
+              <button
+                type="button"
+                onClick={() => setShowPin(!showPin)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-primary transition-colors"
+                tabIndex={-1}
+              >
+                {showPin ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
             {error && <p className="text-red-500 text-sm text-center">{error}</p>}
             <button
@@ -335,6 +346,61 @@ export default function OwnerDashboard() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+            </div>
+          </div>
+
+          {/* Employee Management */}
+          <h2 className="text-xl font-serif font-bold text-[#2A1A12] mt-8 mb-4">Employee Management</h2>
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-[rgba(198,138,87,0.1)] shadow-sm overflow-hidden mb-8">
+            <div className="p-6 border-b border-gray-100">
+              <p className="text-sm text-[#A89B93]">Manage employee access to the admin dashboard.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50/50 text-[#A89B93] font-medium">
+                  <tr>
+                    <th className="px-6 py-4">Employee Email</th>
+                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {orders.filter(o => o.product_variant === 'EMPLOYEE_ACCOUNT').length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-6 py-8 text-center text-[#A89B93]">No employee accounts found.</td>
+                    </tr>
+                  ) : (
+                    orders.filter(o => o.product_variant === 'EMPLOYEE_ACCOUNT').map(emp => (
+                      <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-6 py-4 font-medium text-[#2A1A12]">{emp.customer_name}</td>
+                        <td className="px-6 py-4">
+                          <span className={cn("px-3 py-1 rounded-full text-xs font-medium uppercase tracking-wide", 
+                            emp.status === 'pending' ? "bg-yellow-100 text-yellow-700" : 
+                            emp.status === 'processing' ? "bg-green-100 text-green-700" : 
+                            "bg-red-100 text-red-700"
+                          )}>
+                            {emp.status === 'processing' ? 'Approved' : emp.status}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right space-x-2">
+                          {emp.status === 'pending' && (
+                            <>
+                              <button onClick={() => handleEmployeeAction(emp.id, 'processing')} className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition-colors">Approve</button>
+                              <button onClick={() => handleEmployeeAction(emp.id, 'cancelled')} className="px-3 py-1.5 bg-red-100 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-200 transition-colors">Reject</button>
+                            </>
+                          )}
+                          {emp.status === 'processing' && (
+                            <button onClick={() => handleEmployeeAction(emp.id, 'cancelled')} className="px-3 py-1.5 bg-red-100 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-200 transition-colors">Revoke Access</button>
+                          )}
+                          {emp.status === 'cancelled' && (
+                            <button onClick={() => handleEmployeeAction(emp.id, 'processing')} className="px-3 py-1.5 bg-green-100 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-200 transition-colors">Restore Access</button>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent } from 'react';
-import { Save, Lock } from 'lucide-react';
+import { Save, Lock, Eye, EyeOff } from 'lucide-react';
 
 export default function Settings() {
   const [appName, setAppName] = useState('');
@@ -8,6 +8,8 @@ export default function Settings() {
   // Pin states
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
+  const [showCurrentPin, setShowCurrentPin] = useState(false);
+  const [showNewPin, setShowNewPin] = useState(false);
   const [pinError, setPinError] = useState('');
   const [pinSaved, setPinSaved] = useState(false);
 
@@ -113,27 +115,47 @@ export default function Settings() {
               <label className="block text-[14px] font-medium text-text-muted">
                 Current PIN
               </label>
-              <input
-                type="password"
-                value={currentPin}
-                onChange={(e) => setCurrentPin(e.target.value)}
-                className="w-full max-w-md px-4 py-3 bg-glass border border-border-glass focus:border-primary focus:ring-0 rounded-[12px] text-[14px] text-text-main transition-all outline-none"
-                placeholder="Enter current PIN"
-                required
-              />
+              <div className="relative max-w-md">
+                <input
+                  type={showCurrentPin ? "text" : "password"}
+                  value={currentPin}
+                  onChange={(e) => setCurrentPin(e.target.value)}
+                  className="w-full pl-4 pr-12 py-3 bg-glass border border-border-glass focus:border-primary focus:ring-0 rounded-[12px] text-[14px] text-text-main transition-all outline-none"
+                  placeholder="Enter current PIN"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPin(!showCurrentPin)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-primary transition-colors"
+                  tabIndex={-1}
+                >
+                  {showCurrentPin ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
             <div className="space-y-2">
               <label className="block text-[14px] font-medium text-text-muted">
                 New PIN
               </label>
-              <input
-                type="password"
-                value={newPin}
-                onChange={(e) => setNewPin(e.target.value)}
-                className="w-full max-w-md px-4 py-3 bg-glass border border-border-glass focus:border-primary focus:ring-0 rounded-[12px] text-[14px] text-text-main transition-all outline-none"
-                placeholder="Enter new PIN"
-                required
-              />
+              <div className="relative max-w-md">
+                <input
+                  type={showNewPin ? "text" : "password"}
+                  value={newPin}
+                  onChange={(e) => setNewPin(e.target.value)}
+                  className="w-full pl-4 pr-12 py-3 bg-glass border border-border-glass focus:border-primary focus:ring-0 rounded-[12px] text-[14px] text-text-main transition-all outline-none"
+                  placeholder="Enter new PIN"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPin(!showNewPin)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-primary transition-colors"
+                  tabIndex={-1}
+                >
+                  {showNewPin ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
             {pinError && <p className="text-red-500 text-sm">{pinError}</p>}
           </div>
