@@ -34,6 +34,7 @@ export default function OwnerDashboard() {
   
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [employeeToDelete, setEmployeeToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -97,19 +98,24 @@ export default function OwnerDashboard() {
     }
   };
 
-  const handleEmployeeDelete = async (id: string) => {
-    if (!window.confirm("Are you sure you want to completely delete this employee? They will not be able to log in again.")) return;
+  const confirmDelete = async () => {
+    if (!employeeToDelete) return;
     try {
       const { error } = await supabase
         .from('orders')
         .delete()
-        .eq('id', id);
+        .eq('id', employeeToDelete);
 
       if (error) throw error;
+      setEmployeeToDelete(null);
       fetchOrders();
     } catch (err) {
       console.error('Error deleting employee:', err);
     }
+  };
+
+  const handleEmployeeDelete = (id: string) => {
+    setEmployeeToDelete(id);
   };
 
   const [selectedDeliveryMember, setSelectedDeliveryMember] = useState<string | null>(null);
@@ -458,6 +464,29 @@ export default function OwnerDashboard() {
               </table>
             </div>
           </div>
+
+          {/* Delete Confirmation Modal */}
+          {employeeToDelete && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+              <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-xl">
+                <div className="text-center mb-6">
+                  <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Lock size={24} />
+                  </div>
+                  <h3 className="text-xl font-serif font-bold text-[#2A1A12] mb-2">Delete Employee?</h3>
+                  <p className="text-[#A89B93]">Are you sure you want to completely delete this employee? They will not be able to log in again.</p>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={() => setEmployeeToDelete(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-600 font-medium hover:bg-gray-50 transition-colors">
+                    Cancel
+                  </button>
+                  <button onClick={confirmDelete} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white font-medium hover:bg-red-700 transition-colors">
+                    Delete Permanently
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Delivery History Modal */}
           {selectedDeliveryMember && (

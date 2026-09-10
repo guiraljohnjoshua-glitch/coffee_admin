@@ -17,8 +17,41 @@ export default function Layout() {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [appName, setAppName] = useState("John Coffee's");
+  const [employeeStatus, setEmployeeStatus] = useState<string | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
 
   useEffect(() => {
+    const checkEmployeeStatus = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email) {
+        setUserEmail(session.user.email);
+        if (session.user.email === 'johnjoshuaguiral12@gmail.com') {
+          setEmployeeStatus('owner');
+          setLoadingStatus(false);
+          return;
+        }
+
+        const { data: employeeData } = await supabase
+          .from('orders')
+          .select('status')
+          .eq('product_variant', 'EMPLOYEE_ACCOUNT')
+          .eq('customer_name', session.user.email)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        
+        if (employeeData) {
+          setEmployeeStatus(employeeData.status);
+        } else {
+          setEmployeeStatus('not_found');
+        }
+      }
+      setLoadingStatus(false);
+    };
+
+    checkEmployeeStatus();
+
     const storedName = localStorage.getItem('appName');
     if (storedName) {
       setAppName(storedName);
@@ -45,6 +78,50 @@ export default function Layout() {
     { name: 'Settings', path: '/settings', icon: Settings },
     { name: 'Owner Portal', path: '/owner', icon: Lock },
   ];
+
+  if (loadingStatus) {
+    return (
+      <div className="app-container flex items-center justify-center min-h-screen">
+        <div className="w-8 h-8 border-4 border-[#C68A57] border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (employeeStatus === 'pending') {
+    return (
+      <div className="app-container flex items-center justify-center min-h-screen">
+        <div className="text-center p-8 bg-[#2A1A12] border border-[rgba(255,255,255,0.1)] rounded-2xl max-w-md w-full mx-4 shadow-xl">
+          <Lock className="w-16 h-16 mx-auto mb-6 text-[#A89B93]" />
+          <h2 className="text-2xl font-serif font-bold text-[#F7F4EB] mb-2">Pending Approval</h2>
+          <p className="text-[#A89B93] mb-8">Your account is waiting for the owner to approve it. Please check back later.</p>
+          <button 
+            onClick={handleLogout}
+            className="w-full py-3 px-4 rounded-xl font-medium text-white transition-all transform active:scale-[0.98] bg-[#C68A57] hover:bg-[#B57A47] shadow-lg shadow-[#C68A57]/20"
+          >
+            Log Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (employeeStatus === 'not_found' || employeeStatus === 'cancelled') {
+    return (
+      <div className="app-container flex items-center justify-center min-h-screen">
+        <div className="text-center p-8 bg-[#2A1A12] border border-[rgba(255,255,255,0.1)] rounded-2xl max-w-md w-full mx-4 shadow-xl">
+          <Lock className="w-16 h-16 mx-auto mb-6 text-red-400" />
+          <h2 className="text-2xl font-serif font-bold text-[#F7F4EB] mb-2">Access Denied</h2>
+          <p className="text-[#A89B93] mb-8">Your employee record was not found or your access has been revoked.</p>
+          <button 
+            onClick={handleLogout}
+            className="w-full py-3 px-4 rounded-xl font-medium text-white transition-all transform active:scale-[0.98] bg-[#C68A57] hover:bg-[#B57A47] shadow-lg shadow-[#C68A57]/20"
+          >
+            Log Out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-container font-sans text-text-main">

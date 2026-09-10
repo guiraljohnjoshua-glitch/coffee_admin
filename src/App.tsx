@@ -25,6 +25,9 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      // Removed setLoading(false) here to avoid flickering if it was already false, 
+      // but ensure it's false once we have a definitive auth state.
+      setLoading(false);
     });
 
     return () => subscription.unsubscribe();
@@ -32,8 +35,8 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="app-container flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-border-glass border-t-primary rounded-full animate-spin"></div>
+      <div className="app-container flex items-center justify-center min-h-screen">
+        <div className="w-8 h-8 border-4 border-[#C68A57] border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
