@@ -37,6 +37,12 @@ export default function OwnerDashboard() {
   const [employeeToDelete, setEmployeeToDelete] = useState<string | null>(null);
 
   useEffect(() => {
+    return () => {
+      setPin(''); // Ensure PIN is cleared when leaving the page
+    };
+  }, []);
+
+  useEffect(() => {
     if (isAuthenticated) {
       fetchOrders();
     }
@@ -130,7 +136,7 @@ export default function OwnerDashboard() {
           <h2 className="text-2xl font-serif font-bold text-center text-[#2A1A12] mb-2">Owner Login</h2>
           <p className="text-[#A89B93] text-center text-sm mb-6">Enter PIN to access store analytics</p>
           
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-4" autoComplete="off">
             <div className="relative">
               <input
                 type={showPin ? "text" : "password"}
@@ -139,6 +145,7 @@ export default function OwnerDashboard() {
                 placeholder="Enter PIN"
                 className="w-full text-center tracking-[0.5em] text-xl pl-10 pr-12 py-3 bg-white/50 border border-border-glass rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
                 autoFocus
+                autoComplete="new-password"
               />
               <button
                 type="button"
@@ -211,14 +218,25 @@ export default function OwnerDashboard() {
     if (orderDate >= today) {
       todayOrdersCount++;
       
-      if (variant.includes('classic') || variant.includes('americano')) {
-        regularCoffeeToday += qty;
-      } else if (variant.includes('croissant')) {
-        croissantToday += qty;
-      } else {
-        // Special coffee (Spanish Latte, Caramel Macchiato, Mocha Latte)
-        specialCoffeeToday += qty;
-      }
+      const items = variant.split(',').map(s => s.trim());
+      items.forEach(item => {
+        let itemQty = 1;
+        const match = item.match(/\(x(\d+)\)/);
+        if (match) {
+           itemQty = parseInt(match[1], 10);
+        } else if (items.length === 1) {
+           itemQty = qty; // fallback to order total qty if it's a single item string
+        }
+        
+        if (item.includes('croissant')) {
+          croissantToday += itemQty;
+        } else if (item.includes('americano') || (item.includes('classic') && !item.includes('croissant'))) {
+          regularCoffeeToday += itemQty;
+        } else {
+          // Special coffee (Spanish Latte, Caramel Macchiato, Mocha Latte)
+          specialCoffeeToday += itemQty;
+        }
+      });
     }
   });
 

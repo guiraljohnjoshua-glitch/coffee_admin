@@ -19,6 +19,9 @@ export default function Login() {
     if (storedName) {
       setAppName(storedName);
     }
+    return () => {
+      setPassword(''); // Ensure password is cleared when leaving the page
+    };
   }, []);
 
   const handleAuth = async (e: FormEvent) => {
@@ -120,7 +123,7 @@ export default function Login() {
           </div>
         )}
 
-        <form onSubmit={handleAuth} className="flex flex-col gap-4">
+        <form onSubmit={handleAuth} className="flex flex-col gap-4" autoComplete="off">
           <div>
             <label className="block text-[14px] font-medium text-text-muted mb-1 ml-1" htmlFor="email">
               Email
@@ -133,8 +136,10 @@ export default function Login() {
               className="w-full px-4 py-3 rounded-[10px] bg-glass border border-border-glass focus:border-primary focus:ring-0 transition-all outline-none text-[14px]"
               placeholder="employee@example.com"
               required
+              autoComplete="off"
             />
           </div>
+
           <div>
             <label className="block text-[14px] font-medium text-text-muted mb-1 ml-1" htmlFor="password">
               Password
@@ -148,6 +153,7 @@ export default function Login() {
                 className="w-full pl-4 pr-12 py-3 rounded-[10px] bg-glass border border-border-glass focus:border-primary focus:ring-0 transition-all outline-none text-[14px]"
                 placeholder="••••••••"
                 required
+                autoComplete="new-password"
               />
               <button
                 type="button"
