@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { Order } from '../types';
+import { formatDisplayName } from '../lib/authUtils';
 import { 
   TrendingUp, 
   DollarSign, 
@@ -64,7 +65,7 @@ export default function OwnerDashboard() {
     }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = (e: FormEvent) => {
     e.preventDefault();
     const ownerPin = localStorage.getItem('ownerPin') || '1234';
     if (pin === ownerPin || pin === '0000') {
@@ -87,6 +88,20 @@ export default function OwnerDashboard() {
       fetchOrders();
     } catch (err) {
       console.error('Error updating employee status:', err);
+    }
+  };
+
+  const handleApproveAndAssign = async (id: string, role: string) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({ status: 'processing', city: role })
+        .eq('id', id);
+
+      if (error) throw error;
+      fetchOrders();
+    } catch (err) {
+      console.error('Error approving and assigning employee:', err);
     }
   };
 
@@ -408,16 +423,19 @@ export default function OwnerDashboard() {
           {/* Employee Management */}
           <h2 className="text-xl font-serif font-bold text-[#2A1A12] mt-8 mb-4">Employee Management</h2>
           <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-[rgba(198,138,87,0.1)] shadow-sm overflow-hidden mb-8">
-            <div className="p-6 border-b border-gray-100">
-              <p className="text-sm text-[#A89B93]">Manage employee access and roles.</p>
+            <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <div>
+                <p className="text-sm font-semibold text-[#2A1A12]">Employee Approvals & Access Control</p>
+                <p className="text-xs text-[#A89B93] mt-0.5">New sign-ups require owner approval and role assignment (Crew or Delivery) before they can log in.</p>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-gray-50/50 text-[#A89B93] font-medium">
                   <tr>
-                    <th className="px-6 py-4">Employee Email</th>
-                    <th className="px-6 py-4">Role</th>
-                    <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Employee</th>
+                    <th className="px-6 py-4">Assigned Role</th>
+                    <th className="px-6 py-4">Access Status</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
@@ -427,56 +445,118 @@ export default function OwnerDashboard() {
                       <td colSpan={4} className="px-6 py-8 text-center text-[#A89B93]">No employee accounts found.</td>
                     </tr>
                   ) : (
-                    orders.filter(o => o.product_variant === 'EMPLOYEE_ACCOUNT').map(emp => (
-                      <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-[#2A1A12]">
-                          {emp.customer_name}
-                          {emp.city === 'Delivery Member' && (
-                            <button 
-                              onClick={() => setSelectedDeliveryMember(emp.customer_name)}
-                              className="block mt-1 text-xs text-primary hover:underline"
+                    orders.filter(o => o.product_variant === 'EMPLOYEE_ACCOUNT').map(emp => {
+                      const hasAssignedRole = emp.city === 'Crew Member' || emp.city === 'Delivery Member';
+                      const isApproved = emp.status === 'processing';
+
+                      return (
+                        <tr key={emp.id} className="hover:bg-gray-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-[#2A1A12]">
+                                {formatDisplayName(emp.customer_name)}
+                              </span>
+                              <span className="text-xs text-[#A89B93] truncate max-w-[220px]" title={emp.customer_name}>
+                                {emp.customer_name}
+                              </span>
+                            </div>
+                            {emp.city === 'Delivery Member' && (
+                              <button 
+                                onClick={() => setSelectedDeliveryMember(emp.customer_name)}
+                                className="inline-flex items-center gap-1 mt-1 text-xs text-primary hover:underline font-medium"
+                              >
+                                View Delivery History
+                              </button>
+                            )}
+                          </td>
+                          <td className="px-6 py-4">
+                            <select 
+                              value={emp.city || 'Unassigned'} 
+                              onChange={(e) => handleEmployeeRoleChange(emp.id, e.target.value)}
+                              className={cn(
+                                "border text-xs rounded-lg focus:ring-primary focus:border-primary block w-full p-2 font-medium transition-all",
+                                emp.city === 'Delivery Member' ? "bg-emerald-50 border-emerald-300 text-emerald-800" :
+                                emp.city === 'Crew Member' ? "bg-amber-50 border-amber-300 text-amber-900" :
+                                "bg-gray-50 border-gray-200 text-gray-500"
+                              )}
                             >
-                              View Delivery History
-                            </button>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <select 
-                            value={emp.city || 'Unassigned'} 
-                            onChange={(e) => handleEmployeeRoleChange(emp.id, e.target.value)}
-                            className="bg-gray-50 border border-gray-200 text-gray-700 text-xs rounded-lg focus:ring-primary focus:border-primary block w-full p-2"
-                          >
-                            <option value="Unassigned">Unassigned</option>
-                            <option value="Crew Member">Crew Member</option>
-                            <option value="Delivery Member">Delivery Member</option>
-                          </select>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={cn("px-3 py-1 rounded-full text-xs font-medium uppercase tracking-wide", 
-                            emp.status === 'pending' ? "bg-yellow-100 text-yellow-700" : 
-                            emp.status === 'processing' ? "bg-green-100 text-green-700" : 
-                            "bg-red-100 text-red-700"
-                          )}>
-                            {emp.status === 'processing' ? 'Approved' : emp.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right space-x-2">
-                          {emp.status === 'pending' && (
-                            <>
-                              <button onClick={() => handleEmployeeAction(emp.id, 'processing')} className="px-3 py-1.5 bg-green-500 text-white rounded-lg text-xs font-semibold hover:bg-green-600 transition-colors">Approve</button>
-                              <button onClick={() => handleEmployeeAction(emp.id, 'cancelled')} className="px-3 py-1.5 bg-red-100 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-200 transition-colors">Reject</button>
-                            </>
-                          )}
-                          {emp.status === 'processing' && (
-                            <button onClick={() => handleEmployeeAction(emp.id, 'cancelled')} className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs font-semibold hover:bg-orange-200 transition-colors">Revoke</button>
-                          )}
-                          {emp.status === 'cancelled' && (
-                            <button onClick={() => handleEmployeeAction(emp.id, 'processing')} className="px-3 py-1.5 bg-green-100 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-200 transition-colors">Restore</button>
-                          )}
-                          <button onClick={() => handleEmployeeDelete(emp.id)} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors">Delete</button>
-                        </td>
-                      </tr>
-                    ))
+                              <option value="Unassigned">Unassigned (Login Blocked)</option>
+                              <option value="Crew Member">Crew Member (Status Updates Only)</option>
+                              <option value="Delivery Member">Delivery Member (Delivered/Cancel Only)</option>
+                            </select>
+                          </td>
+                          <td className="px-6 py-4">
+                            {emp.status === 'pending' ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800">
+                                Pending Approval
+                              </span>
+                            ) : isApproved && hasAssignedRole ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                                Approved & Active
+                              </span>
+                            ) : isApproved && !hasAssignedRole ? (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800" title="Assign role to activate login">
+                                Approved (Role Needed)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-red-100 text-red-700">
+                                Revoked / Rejected
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {emp.status === 'pending' && (
+                                <>
+                                  <button 
+                                    onClick={() => handleApproveAndAssign(emp.id, 'Crew Member')} 
+                                    className="px-2.5 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold hover:bg-amber-700 transition-colors shadow-sm"
+                                    title="Approve and assign as Crew Member"
+                                  >
+                                    Approve as Crew
+                                  </button>
+                                  <button 
+                                    onClick={() => handleApproveAndAssign(emp.id, 'Delivery Member')} 
+                                    className="px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition-colors shadow-sm"
+                                    title="Approve and assign as Delivery Member"
+                                  >
+                                    Approve as Delivery
+                                  </button>
+                                  <button 
+                                    onClick={() => handleEmployeeAction(emp.id, 'cancelled')} 
+                                    className="px-2.5 py-1.5 bg-red-100 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-200 transition-colors"
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                              {emp.status === 'processing' && (
+                                <button 
+                                  onClick={() => handleEmployeeAction(emp.id, 'cancelled')} 
+                                  className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg text-xs font-semibold hover:bg-orange-200 transition-colors"
+                                >
+                                  Revoke
+                                </button>
+                              )}
+                              {emp.status === 'cancelled' && (
+                                <button 
+                                  onClick={() => handleEmployeeAction(emp.id, 'processing')} 
+                                  className="px-3 py-1.5 bg-green-100 text-green-600 rounded-lg text-xs font-semibold hover:bg-green-200 transition-colors"
+                                >
+                                  Restore
+                                </button>
+                              )}
+                              <button 
+                                onClick={() => handleEmployeeDelete(emp.id)} 
+                                className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

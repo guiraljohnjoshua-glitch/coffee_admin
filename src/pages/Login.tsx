@@ -1,6 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { normalizeEmployeeIdentifier } from '../lib/authUtils';
 import { Package, Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
@@ -30,14 +31,27 @@ export default function Login() {
     setError(null);
     setMessage(null);
 
+    const normalizedEmail = normalizeEmployeeIdentifier(email);
+    if (!normalizedEmail) {
+      setError("Please enter a username or email.");
+      setLoading(false);
+      return;
+    }
+
     if (isSignUp) {
-      const { error } = await supabase.auth.signUp({
-        email,
+      if (password.length < 6) {
+        setError("Password must be at least 6 characters long.");
+        setLoading(false);
+        return;
+      }
+
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: normalizedEmail,
         password,
       });
 
-      if (error) {
-        setError(error.message);
+      if (signUpError) {
+        setError(signUpError.message);
       } else {
         // Sign out immediately so we can insert the employee record as an anonymous user, 
         // bypassing the RLS policy that restricts authenticated users from inserting.
@@ -45,60 +59,93 @@ export default function Login() {
 
         // Create pending employee account request in orders table
         const { error: insertError } = await supabase.from('orders').insert([{
-          customer_name: email,
-          email: email,
+          customer_name: normalizedEmail,
+          email: normalizedEmail,
           phone: '',
-          city: 'Unassigned', // Set default role
+          city: 'Unassigned', // Default role until owner assigns Crew or Delivery
           address: '',
-          product_name: 'Employee Registration', // Required field
+          product_name: 'Employee Registration',
           product_variant: 'EMPLOYEE_ACCOUNT',
           quantity: 1,
-          status: 'pending' // pending approval
+          status: 'pending' // Pending owner approval
         }]);
 
         if (insertError) {
           console.error("Failed to create employee record:", insertError);
           setError("Failed to create employee request. Please try again.");
         } else {
-          setMessage('Account created! The owner has been notified and needs to approve your access.');
+          setMessage('Account registered successfully! The owner must approve your account and assign your role (Crew Member or Delivery Member) before you can log in.');
           setIsSignUp(false); // Switch back to login
+          setPassword('');
         }
       }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
         password,
       });
 
-      if (error) {
-        if (error.message.toLowerCase().includes("invalid login credentials")) {
-          // Check if they are an employee in our system
+      if (signInError) {
+        if (signInError.message.toLowerCase().includes("invalid login credentials")) {
+          // Check if they are an employee in our system waiting for approval
           const { data: employeeData } = await supabase
             .from('orders')
-            .select('status')
+            .select('status, city')
             .eq('product_variant', 'EMPLOYEE_ACCOUNT')
-            .eq('customer_name', email)
+            .eq('customer_name', normalizedEmail)
             .order('created_at', { ascending: false })
             .limit(1)
             .maybeSingle();
             
-          if (employeeData && employeeData.status === 'processing') {
-            setError("Invalid credentials. Please double-check your password.");
+          if (employeeData && employeeData.status === 'pending') {
+            setError("Account Pending: The owner has not approved your account yet.");
           } else {
-            setError("Invalid email or password.");
+            setError("Invalid email/username or password. Please try again.");
           }
         } else {
-          setError(error.message);
+          setError(signInError.message);
         }
       } else {
-        // App.tsx auth listener will handle the redirect to '/'
+        // If logged in as owner, proceed directly
+        if (normalizedEmail === 'johnjoshuaguiral12@gmail.com') {
+          navigate('/');
+          setLoading(false);
+          return;
+        }
+
+        // Check if employee is approved AND assigned a role
+        const { data: employeeData } = await supabase
+          .from('orders')
+          .select('status, city')
+          .eq('product_variant', 'EMPLOYEE_ACCOUNT')
+          .eq('customer_name', normalizedEmail)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!employeeData) {
+          await supabase.auth.signOut();
+          setError("Access Denied: No employee record found for this account.");
+        } else if (employeeData.status === 'pending') {
+          await supabase.auth.signOut();
+          setError("Account Pending: Your account is waiting for the owner to approve it and assign your role.");
+        } else if (employeeData.status === 'cancelled') {
+          await supabase.auth.signOut();
+          setError("Access Denied: Your account access has been revoked or rejected by the owner.");
+        } else if (employeeData.status === 'processing' && (!employeeData.city || employeeData.city === 'Unassigned')) {
+          await supabase.auth.signOut();
+          setError("Role Pending: Your account is approved, but the owner has not assigned your role (Crew Member or Delivery Member) yet. Please wait for the owner to assign you.");
+        } else {
+          // Approved and assigned! Allowed to proceed
+          navigate('/');
+        }
       }
     }
     setLoading(false);
   };
 
   return (
-    <div className="app-container flex items-center justify-center p-4 font-sans text-text-main">
+    <div className="app-container flex items-center justify-center p-4 font-sans text-text-main min-h-screen">
       <div className="w-full max-w-sm glass-panel p-8 rounded-[24px]">
         <div className="flex justify-center mb-6">
           <div className="bg-primary/10 p-3 rounded-2xl">
@@ -109,35 +156,44 @@ export default function Login() {
           {isSignUp ? `Join ${appName}` : `Log in to ${appName}`}
         </h1>
         <p className="text-center text-text-muted text-[14px] mb-8">
-          {isSignUp ? 'Create an account for a new employee.' : 'Enter your credentials to manage orders.'}
+          {isSignUp 
+            ? 'Sign up with any username or email you like.' 
+            : 'Enter your username or email to manage orders.'}
         </p>
         
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-xl text-center">
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-xl text-center leading-relaxed">
             {error}
           </div>
         )}
         {message && (
-          <div className="mb-4 p-3 bg-green-50 text-green-600 text-sm rounded-xl text-center">
+          <div className="mb-4 p-3 bg-green-50 text-green-700 text-sm rounded-xl text-center leading-relaxed">
             {message}
           </div>
         )}
 
         <form onSubmit={handleAuth} className="flex flex-col gap-4" autoComplete="off">
           <div>
-            <label className="block text-[14px] font-medium text-text-muted mb-1 ml-1" htmlFor="email">
-              Email
-            </label>
+            <div className="flex justify-between items-center mb-1 ml-1">
+              <label className="block text-[14px] font-medium text-text-muted" htmlFor="email">
+                Username or Email
+              </label>
+            </div>
             <input
               id="email"
-              type="email"
+              type="text"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 rounded-[10px] bg-glass border border-border-glass focus:border-primary focus:ring-0 transition-all outline-none text-[14px]"
-              placeholder="employee@example.com"
+              placeholder={isSignUp ? "e.g. sarah or sarah@coffee" : "Username or email"}
               required
               autoComplete="off"
             />
+            {isSignUp && (
+              <p className="text-xs text-text-muted mt-1 ml-1">
+                No real email needed — use any name or handle you choose!
+              </p>
+            )}
           </div>
 
           <div>
@@ -170,7 +226,7 @@ export default function Login() {
               disabled={loading}
               className="w-full bg-primary text-white py-3.5 rounded-full font-semibold mt-4 hover:bg-primary-dark transition-colors disabled:opacity-70 text-[14px]"
             >
-            {loading ? 'Processing...' : isSignUp ? 'Create Account' : 'Log in'}
+            {loading ? 'Processing...' : isSignUp ? 'Create Employee Account' : 'Log in'}
           </button>
           
           <div className="text-center mt-4">
