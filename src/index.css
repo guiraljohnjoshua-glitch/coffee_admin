@@ -42,6 +42,7 @@ body {
   box-shadow: 0 4px 20px rgba(42, 26, 18, 0.03);
 }
 
+.status-new { background: #DBEAFE; color: #1E40AF; }
 .status-pending { background: #FDEEDC; color: #A8672B; }
 .status-processing { background: #EAE6DF; color: #5B524A; }
 .status-shipped { background: #E1E8D5; color: #526338; }

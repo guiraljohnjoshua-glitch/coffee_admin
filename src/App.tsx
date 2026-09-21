@@ -8,8 +8,9 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Orders from './pages/Orders';
 import Settings from './pages/Settings';
-
 import OwnerDashboard from './pages/OwnerDashboard';
+import WorkingStation from './pages/WorkingStation';
+import FacebookBot from './pages/FacebookBot';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -55,7 +56,9 @@ export default function App() {
           element={session ? <Layout /> : <Navigate to="/login" replace />}
         >
           <Route index element={<Dashboard />} />
+          <Route path="station" element={<WorkingStation />} />
           <Route path="orders" element={<Orders />} />
+          <Route path="facebook-bot" element={<FacebookBot />} />
           <Route path="owner" element={<OwnerDashboard />} />
           <Route path="settings" element={<Settings />} />
         </Route>

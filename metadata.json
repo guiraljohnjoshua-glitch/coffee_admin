@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Tara Timpla Coffee",
+  "description": "Working station order pipeline and Facebook AI automated order tracking for Tara Timpla Coffee.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

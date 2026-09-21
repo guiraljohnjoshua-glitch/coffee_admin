@@ -32,7 +32,7 @@ export default function Orders() {
   const [isOwner, setIsOwner] = useState<boolean>(outletContext.isOwner || false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(outletContext.userEmail || null);
 
-  const allStatuses: OrderStatus[] = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+  const allStatuses: OrderStatus[] = ['new', 'pending', 'processing', 'shipped', 'delivered', 'cancelled'];
 
   useEffect(() => {
     fetchOrders();
@@ -88,7 +88,7 @@ export default function Orders() {
   // Determine which statuses the user is allowed to select
   const getAllowedStatuses = (): OrderStatus[] => {
     if (isOwner) {
-      return ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+      return ['new', 'pending', 'processing', 'shipped', 'delivered', 'cancelled'];
     }
     if (userRole === 'Delivery Member') {
       // Delivery can ONLY press delivered and cancelled
@@ -96,9 +96,9 @@ export default function Orders() {
     }
     if (userRole === 'Crew Member') {
       // Crew CANNOT click delivered only
-      return ['pending', 'processing', 'shipped', 'cancelled'];
+      return ['new', 'pending', 'processing', 'shipped', 'cancelled'];
     }
-    return ['pending', 'processing', 'shipped', 'cancelled'];
+    return ['new', 'pending', 'processing', 'shipped', 'cancelled'];
   };
 
   const handleStatusUpdate = async (id: string, newStatus: OrderStatus) => {
@@ -133,6 +133,23 @@ export default function Orders() {
         .eq('id', id);
 
       if (error) throw error;
+
+      const targetOrder = orders.find(o => o.id === id);
+      if (targetOrder) {
+        // Dispatch automated customer FB message
+        fetch('/api/orders/notify-fb', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            orderId: id,
+            newStatus,
+            customerName: targetOrder.customer_name,
+            productVariant: targetOrder.product_variant,
+            quantity: targetOrder.quantity,
+            phone: targetOrder.phone,
+          }),
+        }).catch(err => console.warn('Could not notify FB:', err));
+      }
       
       const newOrders = orders.map(o => o.id === id ? { ...o, ...updateData } : o);
       setOrders(newOrders);

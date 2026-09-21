@@ -11,7 +11,9 @@ import {
   Lock,
   Clock,
   ShieldAlert,
-  UserCheck
+  UserCheck,
+  Coffee,
+  Bot
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
@@ -20,7 +22,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [appName, setAppName] = useState("John Coffee's");
+  const [appName, setAppName] = useState("Tara Timpla Coffee");
   const [employeeStatus, setEmployeeStatus] = useState<string | null>(null);
   const [employeeRole, setEmployeeRole] = useState<string>('Unassigned');
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -91,10 +93,12 @@ export default function Layout() {
     navigate('/login');
   };
 
-  // Restrict navigation: employees only see Dashboard and Orders
+  // Navigation for all approved team members (Crew, Delivery, Owner)
   const navItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+    { name: 'Working Station', path: '/station', icon: Coffee },
     { name: 'Orders', path: '/orders', icon: Package },
+    { name: 'Tara Timpla FB AI', path: '/facebook-bot', icon: Bot },
     ...(isOwner ? [
       { name: 'Settings', path: '/settings', icon: Settings },
       { name: 'Owner Portal', path: '/owner', icon: Lock },

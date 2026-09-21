@@ -1,4 +1,16 @@
-export type OrderStatus = 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+export type OrderStatus = 'new' | 'pending' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+
+export interface FBNotificationLog {
+  id: string;
+  orderId: string;
+  customerName: string;
+  phone?: string;
+  status: OrderStatus;
+  message: string;
+  sentAt: string;
+  channel: 'facebook_messenger' | 'simulated_webhook';
+  delivered: boolean;
+}
 
 export interface Order {
   id: string; // Assuming string (UUID) or number but Supabase usually returns string for UUIDs. We'll use string for compatibility.
@@ -18,4 +30,7 @@ export interface Order {
 
 export interface AppSettings {
   appName: string;
+  fbPageName?: string;
+  fbPageId?: string;
+  fbAutoNotifyOnProcessing?: boolean;
 }
