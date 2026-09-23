@@ -13,10 +13,12 @@ import {
   ShieldAlert,
   UserCheck,
   Coffee,
-  Bot
+  Bot,
+  Sparkles
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
+import FloatingAiChatbot from './FloatingAiChatbot';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -98,7 +100,7 @@ export default function Layout() {
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
     { name: 'Working Station', path: '/station', icon: Coffee },
     { name: 'Orders', path: '/orders', icon: Package },
-    { name: 'Tara Timpla FB AI', path: '/facebook-bot', icon: Bot },
+    { name: 'AI Barista & Order', path: '/ai-barista', icon: Sparkles },
     ...(isOwner ? [
       { name: 'Settings', path: '/settings', icon: Settings },
       { name: 'Owner Portal', path: '/owner', icon: Lock },
@@ -285,6 +287,9 @@ export default function Layout() {
           </div>
         </main>
       </div>
+
+      {/* Floating Website AI Barista Chatbot (accessible from anywhere) */}
+      <FloatingAiChatbot />
     </div>
   );
 }

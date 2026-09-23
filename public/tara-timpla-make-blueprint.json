@@ -1,0 +1,73 @@
+{
+  "name": "Tara Timpla Coffee - FB Messenger AI + Google Sheets Customer Logger",
+  "flow": [
+    {
+      "id": 1,
+      "module": "gateway:CustomWebHook",
+      "version": 1,
+      "parameters": {
+        "hook": null,
+        "maxResults": 1
+      },
+      "mapper": {},
+      "metadata": {
+        "designer": {
+          "x": -300,
+          "y": 0,
+          "name": "1. Meta Webhook Receiver"
+        },
+        "restore": {},
+        "parameters": [
+          {
+            "name": "hook",
+            "type": "hook:gateway-webhook",
+            "label": "Webhook",
+            "required": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "module": "gateway:WebhookRespond",
+      "version": 1,
+      "parameters": {},
+      "filter": {
+        "name": "Is Meta Verification Challenge",
+        "conditions": [
+          [
+            {
+              "a": "{{1.`hub.challenge`}}",
+              "o": "exist"
+            }
+          ]
+        ]
+      },
+      "mapper": {
+        "status": 200,
+        "body": "{{1.`hub.challenge`}}"
+      },
+      "metadata": {
+        "designer": {
+          "x": 0,
+          "y": 0,
+          "name": "2. Echo hub.challenge to Meta"
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "instant": true,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitInterval": 60,
+      "sequential": false
+    },
+    "designer": {
+      "orphans": []
+    }
+  }
+}

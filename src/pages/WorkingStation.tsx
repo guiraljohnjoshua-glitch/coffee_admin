@@ -48,7 +48,7 @@ const COLUMNS: PipelineColumn[] = [
   { 
     id: 'processing', 
     title: 'Processing', 
-    subtitle: 'Brewing & preparing (FB Notified)', 
+    subtitle: 'Brewing & preparing (Customer Notified)', 
     badgeClass: 'bg-purple-500/15 text-purple-900 border-purple-300',
     icon: Coffee 
   },
@@ -216,8 +216,8 @@ export default function WorkingStation() {
         }),
       });
       const data = await res.json();
-      if (data.success && newStatus === 'processing') {
-        setNotificationBanner(`💬 Automated FB Message Dispatched to ${order.customer_name}: Order now in Processing!`);
+      if (data.success) {
+        setNotificationBanner(`💬 Real-time AI Chatbot Alert Dispatched to ${order.customer_name}: Order now in ${newStatus.toUpperCase()}!`);
         setTimeout(() => setNotificationBanner(null), 5000);
       }
     } catch (e) {

@@ -10,7 +10,7 @@ import Orders from './pages/Orders';
 import Settings from './pages/Settings';
 import OwnerDashboard from './pages/OwnerDashboard';
 import WorkingStation from './pages/WorkingStation';
-import FacebookBot from './pages/FacebookBot';
+import AiBaristaChatbot from './pages/AiBaristaChatbot';
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -58,7 +58,8 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="station" element={<WorkingStation />} />
           <Route path="orders" element={<Orders />} />
-          <Route path="facebook-bot" element={<FacebookBot />} />
+          <Route path="ai-barista" element={<AiBaristaChatbot />} />
+          <Route path="facebook-bot" element={<Navigate to="/ai-barista" replace />} />
           <Route path="owner" element={<OwnerDashboard />} />
           <Route path="settings" element={<Settings />} />
         </Route>

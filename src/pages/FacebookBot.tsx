@@ -15,9 +15,15 @@ import {
   ExternalLink, 
   Settings, 
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  FileSpreadsheet,
+  Download,
+  Check,
+  Share2,
+  Workflow
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { MakeBlueprintSection } from '../components/MakeBlueprintSection';
 
 interface ChatMessage {
   id: string;
@@ -53,6 +59,7 @@ export default function FacebookBot() {
   const [pageId, setPageId] = useState(localStorage.getItem('tt_fb_page_id') || 'tara.timpla.coffee');
   const [copiedWebhook, setCopiedWebhook] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
+  const [activeTab, setActiveTab] = useState<'blueprint' | 'simulator'>('blueprint');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -249,28 +256,58 @@ export default function FacebookBot() {
         </div>
       </div>
 
-      {/* Rules Notice */}
-      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-950 flex items-start gap-3">
-        <AlertCircle size={18} className="text-amber-700 shrink-0 mt-0.5" />
-        <div className="space-y-1">
-          <p className="font-bold text-sm text-amber-900">
-            Tara Timpla Coffee Strict Policy Enforced by AI:
-          </p>
-          <ul className="list-disc list-inside space-y-0.5 text-amber-800/90 font-medium">
-            <li>
-              <strong>Pending / New Order:</strong> The customer <strong>CAN CANCEL</strong> via chat. The AI will void it and update the Working Station pipeline immediately.
-            </li>
-            <li>
-              <strong>Processing (Brewing/Crafting):</strong> When crew moves order to Processing, the customer receives an automatic FB message. Per store rules, the customer <strong>CANNOT CANCEL</strong> once in process.
-            </li>
-            <li>
-              <strong>Shipped & Delivered:</strong> Handed to delivery rider or finished. Cancellations are strictly locked.
-            </li>
-          </ul>
-        </div>
+      {/* Tab Switcher */}
+      <div className="flex items-center gap-2 p-1.5 bg-gray-100 rounded-2xl max-w-md border border-gray-200">
+        <button
+          onClick={() => setActiveTab('blueprint')}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            activeTab === 'blueprint'
+              ? 'bg-purple-800 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <Workflow size={14} />
+          Make.com &amp; Google Sheets
+        </button>
+        <button
+          onClick={() => setActiveTab('simulator')}
+          className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+            activeTab === 'simulator'
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+          }`}
+        >
+          <MessageSquare size={14} />
+          Messenger Simulator &amp; Outbox
+        </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      {activeTab === 'blueprint' ? (
+        <MakeBlueprintSection apiBaseUrl={`${window.location.origin}/api/gemini/chat`} />
+      ) : (
+        <>
+          {/* Rules Notice */}
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs text-amber-950 flex items-start gap-3">
+            <AlertCircle size={18} className="text-amber-700 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-sm text-amber-900">
+                Tara Timpla Coffee Strict Policy Enforced by AI:
+              </p>
+              <ul className="list-disc list-inside space-y-0.5 text-amber-800/90 font-medium">
+                <li>
+                  <strong>Pending / New Order:</strong> The customer <strong>CAN CANCEL</strong> via chat. The AI will void it and update the Working Station pipeline immediately.
+                </li>
+                <li>
+                  <strong>Processing (Brewing/Crafting):</strong> When crew moves order to Processing, the customer receives an automatic FB message. Per store rules, the customer <strong>CANNOT CANCEL</strong> once in process.
+                </li>
+                <li>
+                  <strong>Shipped & Delivered:</strong> Handed to delivery rider or finished. Cancellations are strictly locked.
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* LEFT COLUMN: Facebook Messenger Simulator (7 Cols) */}
         <div className="lg:col-span-7 bg-white rounded-3xl border border-[#C68A57]/15 shadow-sm overflow-hidden flex flex-col h-[640px]">
           {/* Messenger Chat Header */}
@@ -600,6 +637,8 @@ export default function FacebookBot() {
           </div>
         </div>
       </div>
-    </div>
+    </>
+  )}
+</div>
   );
 }

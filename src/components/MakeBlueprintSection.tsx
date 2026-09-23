@@ -1,0 +1,453 @@
+import React, { useState } from 'react';
+import { 
+  Workflow, 
+  FileSpreadsheet, 
+  Download, 
+  Copy, 
+  Check, 
+  ExternalLink, 
+  Bot, 
+  ArrowRight, 
+  ShieldCheck, 
+  Sparkles,
+  Info,
+  CheckCircle2
+} from 'lucide-react';
+
+interface Props {
+  apiBaseUrl?: string;
+}
+
+export const MakeBlueprintSection: React.FC<Props> = ({ apiBaseUrl }) => {
+  const [copiedBlueprint, setCopiedBlueprint] = useState(false);
+  const [copiedHeaders, setCopiedHeaders] = useState(false);
+  const [copiedApiUrl, setCopiedApiUrl] = useState(false);
+  const [showJsonPreview, setShowJsonPreview] = useState(false);
+
+  const resolvedApiUrl = apiBaseUrl || (typeof window !== 'undefined' ? `${window.location.origin}/api/gemini/chat` : 'https://ais-dev-6mqpc5idozkhkiqhuamkjg-481142558216.asia-southeast1.run.app/api/gemini/chat');
+
+  const makeBlueprint = {
+    name: "Tara Timpla Coffee - FB Messenger AI + Google Sheets Customer Logger",
+    flow: [
+      {
+        id: 1,
+        module: "gateway:CustomWebHook",
+        version: 1,
+        parameters: { hook: null, maxResults: 1 },
+        mapper: {},
+        metadata: {
+          designer: { x: -300, y: 0, name: "1. Meta Webhook Receiver (Messenger)" }
+        }
+      },
+      {
+        id: 2,
+        module: "google-sheets:actionAddRow",
+        version: 1,
+        parameters: { __IMTCONN__: null },
+        filter: {
+          name: "Has Text Message",
+          conditions: [[{ a: "{{1.entry[1].messaging[1].message.text}}", o: "exist" }]]
+        },
+        mapper: {
+          spreadsheetId: null,
+          sheetId: "Sheet1",
+          values: {
+            "0": "{{formatDate(now; \"YYYY-MM-DD HH:mm:ss\")}}",
+            "1": "{{ifempty(1.entry[1].messaging[1].sender.name; 1.entry[1].messaging[1].sender.id)}}",
+            "2": "{{1.entry[1].messaging[1].sender.id}}",
+            "3": "{{1.entry[1].messaging[1].message.text}}",
+            "4": "Processing inquiry...",
+            "5": "RECEIVED"
+          }
+        },
+        metadata: {
+          designer: { x: -60, y: 0, name: "2. Google Sheets: Log Customer Inquiry" }
+        }
+      },
+      {
+        id: 3,
+        module: "http:ActionSendRequest",
+        version: 3,
+        parameters: { handleErrors: false },
+        mapper: {
+          url: resolvedApiUrl,
+          method: "post",
+          headers: [{ name: "Content-Type", value: "application/json" }],
+          bodyType: "raw",
+          parseResponse: true,
+          data: "{\n  \"message\": \"{{replace(1.entry[1].messaging[1].message.text; '\"'; '\\\\\"')}}\",\n  \"customerName\": \"{{ifempty(1.entry[1].messaging[1].sender.name; 'Customer')}}\",\n  \"psid\": \"{{1.entry[1].messaging[1].sender.id}}\"\n}"
+        },
+        metadata: {
+          designer: { x: 180, y: 0, name: "3. Tara Timpla Coffee AI Barista (Gemini + Orders Check)" }
+        }
+      },
+      {
+        id: 4,
+        module: "http:ActionSendRequest",
+        version: 3,
+        parameters: { handleErrors: false },
+        mapper: {
+          url: "https://graph.facebook.com/v19.0/me/messages",
+          method: "post",
+          headers: [{ name: "Content-Type", value: "application/json" }],
+          qs: [{ name: "access_token", value: "YOUR_FACEBOOK_PAGE_ACCESS_TOKEN" }],
+          bodyType: "raw",
+          parseResponse: true,
+          data: "{\n  \"recipient\": {\n    \"id\": \"{{1.entry[1].messaging[1].sender.id}}\"\n  },\n  \"messaging_type\": \"RESPONSE\",\n  \"message\": {\n    \"text\": \"{{3.data.reply}}\"\n  }\n}"
+        },
+        metadata: {
+          designer: { x: 420, y: 0, name: "4. Meta Graph API: Send Messenger Reply" }
+        }
+      },
+      {
+        id: 5,
+        module: "google-sheets:actionUpdateRow",
+        version: 1,
+        parameters: { __IMTCONN__: null },
+        mapper: {
+          spreadsheetId: null,
+          sheetId: "Sheet1",
+          rowNumber: "{{2.rowNumber}}",
+          values: {
+            "4": "{{3.data.reply}}",
+            "5": "{{ifempty(3.data.actionTaken; 'REPLIED')}}"
+          }
+        },
+        metadata: {
+          designer: { x: 660, y: 0, name: "5. Google Sheets: Update Row with AI Response" }
+        }
+      }
+    ],
+    metadata: {
+      instant: true,
+      version: 1,
+      scenario: {
+        roundtrips: 1,
+        maxErrors: 3,
+        autoCommit: true,
+        autoCommitInterval: 60,
+        sequential: false
+      }
+    }
+  };
+
+  const blueprintString = JSON.stringify(makeBlueprint, null, 2);
+
+  const googleSheetsHeaders = [
+    { col: 'A', name: 'Timestamp', desc: 'Date & Time of message' },
+    { col: 'B', name: 'Customer Name', desc: 'Customer name from Facebook' },
+    { col: 'C', name: 'Facebook PSID', desc: 'Unique Facebook Messenger User ID' },
+    { col: 'D', name: 'Customer Message', desc: 'Inquiry or order check text' },
+    { col: 'E', name: 'AI Barista Reply', desc: 'Generated by Tara Timpla Gemini AI' },
+    { col: 'F', name: 'Order Action / Status', desc: 'e.g. ORDER_CANCELLED, REPLIED' },
+  ];
+
+  const handleDownload = () => {
+    const blob = new Blob([blueprintString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'tara-timpla-make-blueprint.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyBlueprint = () => {
+    navigator.clipboard.writeText(blueprintString);
+    setCopiedBlueprint(true);
+    setTimeout(() => setCopiedBlueprint(false), 2500);
+  };
+
+  const handleCopyHeaders = () => {
+    const tsv = googleSheetsHeaders.map(h => h.name).join('\t');
+    navigator.clipboard.writeText(tsv);
+    setCopiedHeaders(true);
+    setTimeout(() => setCopiedHeaders(false), 2500);
+  };
+
+  const handleCopyApiUrl = () => {
+    navigator.clipboard.writeText(resolvedApiUrl);
+    setCopiedApiUrl(true);
+    setTimeout(() => setCopiedApiUrl(false), 2500);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Top Banner */}
+      <div className="bg-gradient-to-r from-purple-900 via-indigo-900 to-blue-900 text-white rounded-3xl p-6 shadow-md border border-purple-800/40 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="space-y-2 max-w-2xl">
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-purple-500/20 text-purple-200 border border-purple-400/30 flex items-center gap-1.5">
+              <Workflow size={13} className="text-purple-300" />
+              Make.com Verified Scenario Blueprint
+            </span>
+            <span className="px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 flex items-center gap-1.5">
+              <FileSpreadsheet size={13} className="text-emerald-300" />
+              Google Sheets Ready
+            </span>
+          </div>
+          <h2 className="text-xl sm:text-2xl font-serif font-bold text-white tracking-tight">
+            Automate Facebook Messenger &amp; Customer Logging
+          </h2>
+          <p className="text-xs sm:text-sm text-purple-100/80 leading-relaxed font-sans">
+            Connect your Facebook Page directly to Make.com: automatically log every customer inquiry into Google Sheets (Excel), process order status &amp; cancellations with Tara Timpla AI, and reply instantly on Messenger.
+          </p>
+        </div>
+
+        <div className="flex flex-col sm:flex-row md:flex-col gap-2.5 shrink-0">
+          <a
+            href="/api/download-blueprint"
+            download="tara-timpla-make-blueprint.json"
+            onClick={handleDownload}
+            className="px-5 py-3 rounded-2xl bg-white text-purple-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg hover:bg-purple-50 active:scale-95 transition-all cursor-pointer"
+          >
+            <Download size={15} className="text-purple-700" />
+            Download Blueprint (.json)
+          </a>
+          <button
+            onClick={handleCopyBlueprint}
+            className="px-5 py-3 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold text-xs flex items-center justify-center gap-2 active:scale-95 transition-all"
+          >
+            {copiedBlueprint ? <Check size={15} className="text-emerald-400" /> : <Copy size={15} />}
+            {copiedBlueprint ? 'Blueprint Copied!' : 'Copy Blueprint JSON'}
+          </button>
+        </div>
+      </div>
+
+      {/* Visual Pipeline Flow */}
+      <div className="bg-white rounded-3xl border border-[#C68A57]/15 p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+          <div>
+            <h3 className="text-base font-bold text-[#2A1A12] flex items-center gap-2">
+              <Workflow className="w-5 h-5 text-purple-600" />
+              Make.com 5-Step Automation Architecture
+            </h3>
+            <p className="text-xs text-[#A89B93]">
+              Visual breakdown of the data passing between Facebook, Google Sheets, and Tara Timpla AI
+            </p>
+          </div>
+          <span className="text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 px-3 py-1 rounded-full">
+            Zero-code setup
+          </span>
+        </div>
+
+        {/* Step Nodes */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-3 pt-2">
+          {/* Node 1 */}
+          <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 text-xs space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-[11px]">1</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">Trigger</span>
+            </div>
+            <p className="font-bold text-[#2A1A12] text-sm">Meta Webhook</p>
+            <p className="text-gray-600 text-[11px] leading-snug">
+              Captures customer message, sender ID (PSID), and Facebook timestamp in real-time.
+            </p>
+          </div>
+
+          {/* Node 2 */}
+          <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <span className="w-6 h-6 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-[11px]">2</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Google Sheets</span>
+            </div>
+            <p className="font-bold text-[#2A1A12] text-sm">Log Inquiry</p>
+            <p className="text-gray-600 text-[11px] leading-snug">
+              Adds a row in Google Sheets with Customer Name, PSID, and question. Returns row number.
+            </p>
+          </div>
+
+          {/* Node 3 */}
+          <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 text-xs space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <span className="w-6 h-6 rounded-full bg-[#C68A57] text-white font-bold flex items-center justify-center text-[11px]">3</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">AI Engine</span>
+            </div>
+            <p className="font-bold text-[#2A1A12] text-sm">Tara Timpla AI</p>
+            <p className="text-gray-600 text-[11px] leading-snug">
+              Queries live orders pipeline. Enforces cancellation rules (allowed in Pending, locked in Processing).
+            </p>
+          </div>
+
+          {/* Node 4 */}
+          <div className="p-4 rounded-2xl bg-indigo-50/70 border border-indigo-200 text-xs space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <span className="w-6 h-6 rounded-full bg-indigo-600 text-white font-bold flex items-center justify-center text-[11px]">4</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800">Messenger</span>
+            </div>
+            <p className="font-bold text-[#2A1A12] text-sm">Send Reply</p>
+            <p className="text-gray-600 text-[11px] leading-snug">
+              Sends the intelligent barista response directly back to the customer on Facebook Messenger.
+            </p>
+          </div>
+
+          {/* Node 5 */}
+          <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-2 relative">
+            <div className="flex items-center justify-between">
+              <span className="w-6 h-6 rounded-full bg-emerald-700 text-white font-bold flex items-center justify-center text-[11px]">5</span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Update</span>
+            </div>
+            <p className="font-bold text-[#2A1A12] text-sm">Record Outcome</p>
+            <p className="text-gray-600 text-[11px] leading-snug">
+              Updates the Google Sheets row with the AI reply and action taken (e.g. ORDER_CANCELLED).
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Google Sheets (Excel) Column Layout Spec */}
+      <div className="bg-white rounded-3xl border border-[#C68A57]/15 p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
+              <FileSpreadsheet size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-base text-[#2A1A12]">
+                Google Sheets (Excel) Setup Specification
+              </h3>
+              <p className="text-xs text-[#A89B93]">
+                Create a spreadsheet named <strong>"Tara Timpla Coffee - Customer Records"</strong> and paste these headers in Row 1:
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={handleCopyHeaders}
+            className="px-4 py-2 rounded-xl bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 font-bold text-xs flex items-center gap-2 transition-all"
+          >
+            {copiedHeaders ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+            {copiedHeaders ? 'Headers Copied!' : 'Copy Row 1 Headers (Paste to Excel)'}
+          </button>
+        </div>
+
+        {/* Mock Spreadsheet Table */}
+        <div className="overflow-x-auto rounded-2xl border border-gray-200 shadow-inner">
+          <table className="w-full text-left text-xs font-sans">
+            <thead className="bg-emerald-700 text-white font-semibold">
+              <tr>
+                {googleSheetsHeaders.map((h) => (
+                  <th key={h.col} className="p-3 border-r border-emerald-600 last:border-r-0 whitespace-nowrap">
+                    <span className="opacity-75 font-mono text-[10px] mr-1.5">[{h.col}]</span>
+                    {h.name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 bg-white">
+              <tr className="hover:bg-gray-50/80 font-mono text-[11px] text-gray-700">
+                <td className="p-3 text-gray-500 whitespace-nowrap">2026-09-21 15:30:12</td>
+                <td className="p-3 font-semibold text-gray-900 whitespace-nowrap">Juan Dela Cruz</td>
+                <td className="p-3 text-gray-500 whitespace-nowrap">8392104928172</td>
+                <td className="p-3 text-gray-800">"What is the status now of my order?"</td>
+                <td className="p-3 text-emerald-800 font-sans max-w-xs truncate">
+                  "Hi Juan! Our crew is actively brewing your Spanish Latte (Processing)..."
+                </td>
+                <td className="p-3">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">
+                    PROCESSING
+                  </span>
+                </td>
+              </tr>
+              <tr className="hover:bg-gray-50/80 font-mono text-[11px] text-gray-700">
+                <td className="p-3 text-gray-500 whitespace-nowrap">2026-09-21 15:32:45</td>
+                <td className="p-3 font-semibold text-gray-900 whitespace-nowrap">Maria Santos</td>
+                <td className="p-3 text-gray-500 whitespace-nowrap">9102837461928</td>
+                <td className="p-3 text-gray-800">"Can I cancel my Caramel Macchiato?"</td>
+                <td className="p-3 text-blue-800 font-sans max-w-xs truncate">
+                  "Yes Maria! Since your order was still in Pending, we have cancelled it..."
+                </td>
+                <td className="p-3">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-800">
+                    ORDER_CANCELLED
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Step-by-Step Make.com Import Guide */}
+      <div className="bg-white rounded-3xl border border-[#C68A57]/15 p-6 shadow-sm space-y-4">
+        <h3 className="font-bold text-base text-[#2A1A12] flex items-center gap-2 border-b border-gray-100 pb-3">
+          <Workflow size={18} className="text-purple-600" />
+          How to Import this Blueprint into Make.com in 3 Minutes
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-[10px]">
+                1
+              </span>
+              <p className="font-bold text-[#2A1A12]">Import Scenario</p>
+            </div>
+            <p className="text-gray-600 leading-relaxed text-[11px]">
+              Open <a href="https://www.make.com" target="_blank" rel="noreferrer" className="text-purple-700 font-semibold underline">Make.com</a> &rarr; <strong>Scenarios</strong> &rarr; <strong>Create a new scenario</strong>. Click the three dots (<strong>...</strong>) on the bottom controls and click <strong>"Import Blueprint"</strong>. Choose the downloaded <code>tara-timpla-make-blueprint.json</code>.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-[10px]">
+                2
+              </span>
+              <p className="font-bold text-[#2A1A12]">Connect Accounts</p>
+            </div>
+            <p className="text-gray-600 leading-relaxed text-[11px]">
+              - On <strong>Module 1 (Webhook)</strong>: Click "Add Webhook" &rarr; copy the Webhook URL into Meta Developers!<br />
+              - On <strong>Modules 2 &amp; 5 (Google Sheets)</strong>: Select your Google account and choose your spreadsheet.<br />
+              - On <strong>Module 4 (Messenger Reply)</strong>: Paste your Facebook Page Access Token.
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-5 h-5 rounded-full bg-purple-600 text-white flex items-center justify-center font-bold text-[10px]">
+                3
+              </span>
+              <p className="font-bold text-[#2A1A12]">Activate &amp; Test</p>
+            </div>
+            <p className="text-gray-600 leading-relaxed text-[11px]">
+              Click <strong>Save</strong> and toggle the scenario scheduling to <strong>"ON" (Immediately as data arrives)</strong>. Send a message to your Facebook Page: watch it instantly append to Google Sheets and reply automatically!
+            </p>
+          </div>
+        </div>
+
+        {/* API Endpoint Copy Card */}
+        <div className="p-4 rounded-2xl bg-purple-50/60 border border-purple-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="space-y-0.5">
+            <p className="font-bold text-purple-950">Tara Timpla Coffee AI API Endpoint (Used in Module 3):</p>
+            <p className="font-mono text-[11px] text-purple-900 select-all break-all">{resolvedApiUrl}</p>
+          </div>
+          <button
+            onClick={handleCopyApiUrl}
+            className="px-3.5 py-2 rounded-xl bg-purple-600 text-white font-bold text-xs flex items-center gap-1.5 hover:bg-purple-700 active:scale-95 transition-all shrink-0"
+          >
+            {copiedApiUrl ? <Check size={14} /> : <Copy size={14} />}
+            {copiedApiUrl ? 'Copied!' : 'Copy API URL'}
+          </button>
+        </div>
+
+        {/* Toggle JSON Preview */}
+        <div className="pt-2">
+          <button
+            onClick={() => setShowJsonPreview(!showJsonPreview)}
+            className="text-xs text-purple-700 font-bold hover:underline flex items-center gap-1"
+          >
+            {showJsonPreview ? 'Hide Blueprint JSON Preview' : 'Show Blueprint JSON Preview'}
+          </button>
+
+          {showJsonPreview && (
+            <div className="mt-2 p-4 rounded-2xl bg-gray-900 text-gray-200 font-mono text-[11px] max-h-72 overflow-y-auto border border-gray-800 shadow-inner">
+              <pre>{blueprintString}</pre>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
