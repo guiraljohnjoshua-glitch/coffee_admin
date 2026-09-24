@@ -34,3 +34,16 @@ export interface AppSettings {
   fbPageId?: string;
   fbAutoNotifyOnProcessing?: boolean;
 }
+
+export interface AttendanceRecord {
+  id: string;
+  employeeEmail: string;
+  employeeName: string;
+  role: string;
+  status: 'present_and_working' | 'signed_out';
+  signInTime: string;
+  signOutTime?: string;
+  durationMinutes?: number;
+  durationFormatted?: string;
+  date: string;
+}

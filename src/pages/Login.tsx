@@ -1,7 +1,7 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { normalizeEmployeeIdentifier } from '../lib/authUtils';
+import { normalizeEmployeeIdentifier, formatDisplayName } from '../lib/authUtils';
 import { Package, Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
@@ -106,8 +106,21 @@ export default function Login() {
           setError(signInError.message);
         }
       } else {
-        // If logged in as owner, proceed directly
+        // If logged in as owner, record sign in & proceed directly
         if (normalizedEmail === 'johnjoshuaguiral12@gmail.com') {
+          try {
+            await fetch('/api/attendance/sign-in', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: normalizedEmail,
+                employeeName: 'Store Owner',
+                role: 'Owner'
+              })
+            });
+          } catch (e) {
+            console.warn('Could not record owner sign in:', e);
+          }
           navigate('/');
           setLoading(false);
           return;
@@ -116,7 +129,7 @@ export default function Login() {
         // Check if employee is approved AND assigned a role
         const { data: employeeData } = await supabase
           .from('orders')
-          .select('status, city')
+          .select('status, city, customer_name')
           .eq('product_variant', 'EMPLOYEE_ACCOUNT')
           .eq('customer_name', normalizedEmail)
           .order('created_at', { ascending: false })
@@ -136,7 +149,22 @@ export default function Login() {
           await supabase.auth.signOut();
           setError("Role Pending: Your account is approved, but the owner has not assigned your role (Crew Member or Delivery Member) yet. Please wait for the owner to assign you.");
         } else {
-          // Approved and assigned! Allowed to proceed
+          // Approved and assigned! Record employee present & working attendance with exact time
+          try {
+            const displayName = formatDisplayName(normalizedEmail);
+            await fetch('/api/attendance/sign-in', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: normalizedEmail,
+                employeeName: displayName,
+                role: employeeData.city || 'Crew Member'
+              })
+            });
+          } catch (e) {
+            console.warn('Could not record employee sign-in:', e);
+          }
+
           navigate('/');
         }
       }

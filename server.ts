@@ -22,7 +22,14 @@ function getGeminiClient(): GoogleGenAI {
     if (!key) {
       throw new Error('GEMINI_API_KEY is not defined in environment');
     }
-    geminiClient = new GoogleGenAI({ apiKey: key });
+    geminiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
   }
   return geminiClient;
 }
@@ -221,14 +228,271 @@ app.post('/api/ai-chat/create-order', async (req, res) => {
   }
 });
 
-// Helper to calculate real-time store sales, progress, and tracked records
+// ==========================================
+// EMPLOYEE ATTENDANCE & SHIFT TRACKING
+// ==========================================
+
+export interface AttendanceRecord {
+  id: string;
+  employeeEmail: string;
+  employeeName: string;
+  role: string;
+  status: 'present_and_working' | 'signed_out';
+  signInTime: string;
+  signOutTime?: string;
+  durationMinutes?: number;
+  durationFormatted?: string;
+  date: string;
+}
+
+let attendanceMemoryStore: AttendanceRecord[] = [];
+
+async function fetchAttendanceRecords(): Promise<AttendanceRecord[]> {
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .eq('product_variant', 'EMPLOYEE_ATTENDANCE')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error || !data) {
+      return attendanceMemoryStore;
+    }
+
+    const mapped: AttendanceRecord[] = data.map((o: any) => {
+      const isWorking = o.status === 'processing' || o.landmarked === 'Present and Working';
+      const signIn = o.address || o.created_at;
+      const signOut = o.phone || undefined;
+      let durationMins = Number(o.total_price) || undefined;
+      
+      if (!durationMins && signOut && signIn) {
+        durationMins = Math.max(1, Math.round((new Date(signOut).getTime() - new Date(signIn).getTime()) / 60000));
+      }
+
+      let durationStr = o.product_name || '';
+      if (!durationStr || durationStr === 'Employee Attendance Shift') {
+        if (durationMins) {
+          const h = Math.floor(durationMins / 60);
+          const m = durationMins % 60;
+          durationStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+        } else if (isWorking) {
+          const activeMins = Math.max(1, Math.round((Date.now() - new Date(signIn).getTime()) / 60000));
+          const h = Math.floor(activeMins / 60);
+          const m = activeMins % 60;
+          durationStr = h > 0 ? `${h}h ${m}m on shift` : `${m}m on shift`;
+        }
+      } else {
+        durationStr = durationStr.replace('Completed Shift (', '').replace(')', '');
+      }
+
+      return {
+        id: String(o.id),
+        employeeEmail: o.email || 'employee@taratimpla.ph',
+        employeeName: o.customer_name || 'Team Member',
+        role: o.city || 'Crew Member',
+        status: isWorking ? 'present_and_working' : 'signed_out',
+        signInTime: signIn,
+        signOutTime: signOut,
+        durationMinutes: durationMins,
+        durationFormatted: durationStr,
+        date: o.created_at ? new Date(o.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }),
+      };
+    });
+
+    // Merge mapped (from Supabase) with any unpersisted memory records
+    const mapById = new Map<string, AttendanceRecord>();
+    for (const item of mapped) {
+      mapById.set(item.id, item);
+    }
+    for (const item of attendanceMemoryStore) {
+      if (!mapById.has(item.id)) {
+        mapById.set(item.id, item);
+      }
+    }
+    const combined = Array.from(mapById.values()).sort(
+      (a, b) => new Date(b.signInTime).getTime() - new Date(a.signInTime).getTime()
+    );
+
+    attendanceMemoryStore = combined;
+    return combined;
+  } catch (err) {
+    console.warn('Error in fetchAttendanceRecords:', err);
+    return attendanceMemoryStore;
+  }
+}
+
+async function recordEmployeeSignIn(email: string, employeeName?: string, role?: string): Promise<AttendanceRecord> {
+  const normEmail = (email || '').trim().toLowerCase();
+  const displayName = employeeName || (normEmail === 'johnjoshuaguiral12@gmail.com' ? 'Store Owner' : normEmail.split('@')[0]);
+  const safeRole = role || (normEmail === 'johnjoshuaguiral12@gmail.com' ? 'Owner' : 'Crew Member');
+  const now = new Date();
+  const todayDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+
+  // Check if employee already has an active present shift today
+  const existingRecords = await fetchAttendanceRecords();
+  const activeExisting = existingRecords.find(
+    (r) => r.employeeEmail.toLowerCase() === normEmail && r.status === 'present_and_working' && r.date === todayDate
+  );
+
+  if (activeExisting) {
+    return activeExisting;
+  }
+
+  const { data, error } = await supabase
+    .from('orders')
+    .insert([
+      {
+        customer_name: displayName,
+        email: normEmail,
+        city: safeRole,
+        address: now.toISOString(),
+        phone: '',
+        landmarked: 'Present and Working',
+        product_name: 'Employee Attendance Shift',
+        product_variant: 'EMPLOYEE_ATTENDANCE',
+        quantity: 1,
+        total_price: 0,
+        payment_method: 'TIME_CLOCK',
+        status: 'processing', // represents active shift
+      },
+    ])
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Failed to insert attendance sign-in:', error);
+  }
+
+  const newRecord: AttendanceRecord = {
+    id: data?.id ? String(data.id) : 'att-' + Date.now(),
+    employeeEmail: normEmail,
+    employeeName: displayName,
+    role: safeRole,
+    status: 'present_and_working',
+    signInTime: now.toISOString(),
+    durationFormatted: 'Just Clocked In',
+    date: todayDate,
+  };
+
+  attendanceMemoryStore.unshift(newRecord);
+  return newRecord;
+}
+
+async function recordEmployeeSignOut(email: string): Promise<{ success: boolean; record?: AttendanceRecord; message: string }> {
+  const normEmail = (email || '').trim().toLowerCase();
+  const now = new Date();
+  const todayDate = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+
+  // Find active shift in Supabase
+  const { data: activeOrder } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('product_variant', 'EMPLOYEE_ATTENDANCE')
+    .eq('email', normEmail)
+    .eq('status', 'processing')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!activeOrder) {
+    // Check in-memory store fallback
+    const memIndex = attendanceMemoryStore.findIndex(
+      (r) => r.employeeEmail.toLowerCase() === normEmail && r.status === 'present_and_working'
+    );
+
+    if (memIndex >= 0) {
+      const memRec = attendanceMemoryStore[memIndex];
+      const signInDate = new Date(memRec.signInTime);
+      const diffMs = Math.max(0, now.getTime() - signInDate.getTime());
+      const diffMins = Math.max(1, Math.round(diffMs / 60000));
+      const hours = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      const durationFormatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+      const updatedMem: AttendanceRecord = {
+        ...memRec,
+        status: 'signed_out',
+        signOutTime: now.toISOString(),
+        durationMinutes: diffMins,
+        durationFormatted,
+      };
+      attendanceMemoryStore[memIndex] = updatedMem;
+
+      const timeFormatted = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return {
+        success: true,
+        record: updatedMem,
+        message: `${memRec.employeeName} has successfully signed out at ${timeFormatted}. Shift duration: ${durationFormatted}.`,
+      };
+    }
+
+    return {
+      success: false,
+      message: `No active clock-in session found for ${normEmail}.`,
+    };
+  }
+
+  const signInDate = new Date(activeOrder.address || activeOrder.created_at);
+  const diffMs = Math.max(0, now.getTime() - signInDate.getTime());
+  const diffMins = Math.max(1, Math.round(diffMs / 60000));
+  const hours = Math.floor(diffMins / 60);
+  const mins = diffMins % 60;
+  const durationFormatted = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+
+  const { data: updated, error } = await supabase
+    .from('orders')
+    .update({
+      status: 'delivered', // represents completed shift
+      phone: now.toISOString(),
+      landmarked: 'Signed Out',
+      product_name: `Completed Shift (${durationFormatted})`,
+      total_price: diffMins,
+    })
+    .eq('id', activeOrder.id)
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Failed to update attendance sign-out:', error);
+  }
+
+  const completedRecord: AttendanceRecord = {
+    id: String(activeOrder.id),
+    employeeEmail: normEmail,
+    employeeName: activeOrder.customer_name,
+    role: activeOrder.city || 'Crew Member',
+    status: 'signed_out',
+    signInTime: activeOrder.address || activeOrder.created_at,
+    signOutTime: now.toISOString(),
+    durationMinutes: diffMins,
+    durationFormatted,
+    date: todayDate,
+  };
+
+  attendanceMemoryStore = attendanceMemoryStore.map((r) => (r.id === completedRecord.id ? completedRecord : r));
+
+  return {
+    success: true,
+    record: completedRecord,
+    message: `${activeOrder.customer_name} signed out at ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. Total shift: ${durationFormatted}.`,
+  };
+}
+
+// Helper to calculate real-time store sales, growth, progress, and employee attendance
 async function fetchStoreAnalytics() {
   try {
     const { data: allOrders, error } = await supabase
       .from('orders')
       .select('*')
       .neq('product_variant', 'EMPLOYEE_ACCOUNT')
+      .neq('product_variant', 'EMPLOYEE_ATTENDANCE')
       .order('created_at', { ascending: false });
+
+    const attendanceRecords = await fetchAttendanceRecords();
+    const currentlyWorking = attendanceRecords.filter((r) => r.status === 'present_and_working');
+    const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const signedOutToday = attendanceRecords.filter((r) => r.status === 'signed_out' && r.date === todayDate);
 
     if (error || !allOrders) {
       return {
@@ -237,6 +501,10 @@ async function fetchStoreAnalytics() {
         deliveredRevenue: 0,
         todayRevenue: 0,
         todayOrdersCount: 0,
+        yesterdayRevenue: 0,
+        salesGrowthRate: 0,
+        salesGrowthAmount: 0,
+        weekRevenue: 0,
         countsByStatus: { new: 0, pending: 0, processing: 0, shipped: 0, delivered: 0, cancelled: 0 },
         activeOrdersCount: 0,
         avgOrderValue: 0,
@@ -244,15 +512,27 @@ async function fetchStoreAnalytics() {
         topProducts: [] as { name: string; count: number; total: number }[],
         paymentBreakdown: { cod: { count: 0, total: 0 }, gcash: { count: 0, total: 0 } },
         allOrders: [] as any[],
+        attendance: {
+          currentlyWorkingCount: currentlyWorking.length,
+          currentlyWorking,
+          signedOutToday,
+          allRecords: attendanceRecords,
+        },
       };
     }
 
-    const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const now = new Date();
+    const yesterdayDate = new Date(now.getTime() - 24 * 60 * 60 * 1000).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     let totalGrossRevenue = 0;
     let deliveredRevenue = 0;
     let todayRevenue = 0;
     let todayOrdersCount = 0;
+    let yesterdayRevenue = 0;
+    let yesterdayOrdersCount = 0;
+    let weekRevenue = 0;
+
     const countsByStatus: Record<string, number> = {
       new: 0,
       pending: 0,
@@ -284,9 +564,18 @@ async function fetchStoreAnalytics() {
         const orderDate = o.created_at
           ? new Date(o.created_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
           : '';
+        const orderTimestamp = o.created_at ? new Date(o.created_at) : new Date();
+
         if (orderDate === todayDate) {
           todayRevenue += price;
           todayOrdersCount++;
+        } else if (orderDate === yesterdayDate) {
+          yesterdayRevenue += price;
+          yesterdayOrdersCount++;
+        }
+
+        if (orderTimestamp >= sevenDaysAgo) {
+          weekRevenue += price;
         }
 
         if (status === 'delivered') {
@@ -316,9 +605,18 @@ async function fetchStoreAnalytics() {
     const activeOrdersCount = countsByStatus.new + countsByStatus.pending + countsByStatus.processing + countsByStatus.shipped;
     const fulfillmentRate = nonCancelled > 0 ? Math.round((countsByStatus.delivered / nonCancelled) * 100) : 100;
 
+    // Sales Growth Rate calculation
+    let salesGrowthRate = 0;
+    const salesGrowthAmount = todayRevenue - yesterdayRevenue;
+    if (yesterdayRevenue > 0) {
+      salesGrowthRate = Math.round(((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100);
+    } else if (todayRevenue > 0) {
+      salesGrowthRate = 100; // Strong initial growth from baseline
+    }
+
     const topProducts = Object.entries(productSalesMap)
       .map(([name, stats]) => ({ name, ...stats }))
-      .sort((a, b) => b.count - a.count)
+      .sort((a, b) => b.total - a.total)
       .slice(0, 6);
 
     return {
@@ -327,6 +625,11 @@ async function fetchStoreAnalytics() {
       deliveredRevenue,
       todayRevenue,
       todayOrdersCount,
+      yesterdayRevenue,
+      yesterdayOrdersCount,
+      salesGrowthRate,
+      salesGrowthAmount,
+      weekRevenue,
       countsByStatus,
       activeOrdersCount,
       avgOrderValue,
@@ -334,6 +637,12 @@ async function fetchStoreAnalytics() {
       topProducts,
       paymentBreakdown: paymentMap,
       allOrders,
+      attendance: {
+        currentlyWorkingCount: currentlyWorking.length,
+        currentlyWorking,
+        signedOutToday,
+        allRecords: attendanceRecords,
+      },
     };
   } catch (err) {
     console.error('Error in fetchStoreAnalytics:', err);
@@ -351,7 +660,59 @@ app.get('/api/store/analytics', async (_req, res) => {
   }
 });
 
-// AI Chatbot endpoint for website customer interaction
+// Live Employee Attendance & Shift Tracking endpoints
+app.post('/api/attendance/sign-in', async (req, res) => {
+  try {
+    const { email, employeeName, role } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    const record = await recordEmployeeSignIn(email, employeeName, role);
+    res.json({
+      success: true,
+      record,
+      message: `${record.employeeName} is recorded as Present and Working starting at ${new Date(record.signInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`,
+    });
+  } catch (err: any) {
+    console.error('Error in sign-in attendance:', err);
+    res.status(500).json({ error: err.message || 'Could not record attendance' });
+  }
+});
+
+app.post('/api/attendance/sign-out', async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    const result = await recordEmployeeSignOut(email);
+    res.json(result);
+  } catch (err: any) {
+    console.error('Error in sign-out attendance:', err);
+    res.status(500).json({ error: err.message || 'Could not record sign-out' });
+  }
+});
+
+app.get('/api/attendance/status', async (_req, res) => {
+  try {
+    const records = await fetchAttendanceRecords();
+    const currentlyWorking = records.filter((r) => r.status === 'present_and_working');
+    const todayDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const signedOutToday = records.filter((r) => r.status === 'signed_out' && r.date === todayDate);
+
+    res.json({
+      success: true,
+      totalPresentCount: currentlyWorking.length,
+      currentlyWorking,
+      signedOutToday,
+      allRecords: records,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Could not fetch attendance status' });
+  }
+});
+
+// AI Chatbot endpoint - Store Growth, Sales & Revenue Analyst + Staff Attendance
 app.post('/api/gemini/chat', async (req, res) => {
   let candidateOrders: any[] = [];
   let storeAnalytics: any = null;
@@ -362,7 +723,7 @@ app.post('/api/gemini/chat', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Fetch live store analytics & all tracked records
+    // Fetch live store analytics & employee attendance
     storeAnalytics = await fetchStoreAnalytics();
 
     // Lookup relevant orders from Supabase for context
@@ -373,6 +734,7 @@ app.post('/api/gemini/chat', async (req, res) => {
         .from('orders')
         .select('*')
         .neq('product_variant', 'EMPLOYEE_ACCOUNT')
+        .neq('product_variant', 'EMPLOYEE_ATTENDANCE')
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -390,7 +752,7 @@ app.post('/api/gemini/chat', async (req, res) => {
         orderContext = candidateOrders
           .map(
             (o) =>
-              `- Order ID: ${o.id.slice(0, 8)} (Full: ${o.id}) | Customer: ${o.customer_name} | Phone: ${o.phone} | Item: ${o.product_variant} (x${o.quantity}) | Price: ₱${o.total_price || (o.quantity * 140)} | Payment: ${o.payment_method || 'COD'} | Status: ${o.status.toUpperCase()} | Address: ${o.address || o.city || 'N/A'}`
+              `- Order ID: ${o.id.slice(0, 8)} (Full: ${o.id}) | Customer: ${o.customer_name} | Item: ${o.product_variant} (x${o.quantity}) | Price: ₱${o.total_price || (o.quantity * 140)} | Status: ${o.status.toUpperCase()}`
           )
           .join('\n');
       }
@@ -414,147 +776,130 @@ app.post('/api/gemini/chat', async (req, res) => {
       )
       .join('\n');
 
+    // Format employee attendance summary
+    const workingEmployees = storeAnalytics?.attendance?.currentlyWorking || [];
+    const workingStaffSummary = workingEmployees.length > 0
+      ? workingEmployees
+          .map(
+            (e: any, i: number) =>
+              `  ${i + 1}. **${e.employeeName}** (${e.role}) — Status: **PRESENT AND WORKING** (Signed in: ${new Date(e.signInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}, Active: ${e.durationFormatted})`
+          )
+          .join('\n')
+      : '  • No employees currently clocked in as working.';
+
+    const signedOutEmployees = storeAnalytics?.attendance?.signedOutToday || [];
+    const signedOutSummary = signedOutEmployees.length > 0
+      ? signedOutEmployees
+          .map(
+            (e: any, i: number) =>
+              `  ${i + 1}. **${e.employeeName}** (${e.role}) — Signed out: ${new Date(e.signOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} (Total shift: ${e.durationFormatted})`
+          )
+          .join('\n')
+      : '  • No completed shift sign-outs recorded today.';
+
     const ai = getGeminiClient();
 
-    const systemPrompt = `You are "Tara Timpla AI Assistant", the official Virtual Barista, Store Progress Analyst, and Real-Time Business Intelligence Specialist for Tara Timpla Coffee.
-You are embedded directly on the Tara Timpla Coffee website.
-Tone: Warm, hospitable, energetic Filipino specialty coffee barista and sharp store manager. Passionate about great brews, polite, and fluent in English or natural Taglish.
+    const systemPrompt = `You are "Tara Timpla Coffee AI Growth & Revenue Analyst", the official Executive Business Intelligence & Employee Shift Presence Specialist for Tara Timpla Coffee.
+You are embedded directly on the Tara Timpla Coffee platform.
+Tone: Sharp, encouraging, professional, transparent Filipino coffee brand executive and store analyst. Fluent in English and natural Filipino/Taglish.
 
-LIVE STORE SALES & PROGRESS METRICS (REAL-TIME FROM WORKING STATION & DATABASE):
-- Today's Sales: ₱${(storeAnalytics?.todayRevenue || 0).toLocaleString()} across ${storeAnalytics?.todayOrdersCount || 0} order(s) placed today.
-- Total Gross Revenue: ₱${(storeAnalytics?.totalGrossRevenue || 0).toLocaleString()} across all non-cancelled orders.
+🚨 STRICT CONSTITUTIONAL RULE: YOU ARE NOT INTENDED TO TAKE ORDERS!
+- DO NOT invite customers to order from you.
+- DO NOT ask for their address, phone, sweetness level, or cup size to create orders.
+- DO NOT output any order creation tokens.
+- IF A USER ASKS TO ORDER A DRINK OR BUY COFFEE:
+  Warmly and politely explain:
+  "☕ Tara Timpla AI Analyst: Please note that I am our store's executive Growth, Sales & Revenue intelligence assistant, not an order-taking bot! To place an order, please visit our **Working Station** or **Orders** section where our barista crew is ready to craft your coffee fresh. Would you like me to share our current sales growth, revenue breakdown, or who is currently present and working on shift?"
+
+LIVE STORE SALES & REVENUE GROWTH METRICS (REAL-TIME DATABASE AUDIT):
+- Today's Revenue: ₱${(storeAnalytics?.todayRevenue || 0).toLocaleString()} across ${storeAnalytics?.todayOrdersCount || 0} order(s) today.
+- Yesterday's Revenue: ₱${(storeAnalytics?.yesterdayRevenue || 0).toLocaleString()} (${storeAnalytics?.yesterdayOrdersCount || 0} orders yesterday).
+- Day-over-Day Sales Growth Rate: ${storeAnalytics?.salesGrowthRate >= 0 ? '+' : ''}${storeAnalytics?.salesGrowthRate || 0}%
+- Sales Growth Net Difference: ${storeAnalytics?.salesGrowthAmount >= 0 ? '+' : ''}₱${(storeAnalytics?.salesGrowthAmount || 0).toLocaleString()}
+- Past 7 Days Gross Revenue: ₱${(storeAnalytics?.weekRevenue || 0).toLocaleString()}
+- Total All-Time Gross Revenue: ₱${(storeAnalytics?.totalGrossRevenue || 0).toLocaleString()} across ${storeAnalytics?.totalOrdersCount || 0} total records.
 - Delivered (Collected) Sales: ₱${(storeAnalytics?.deliveredRevenue || 0).toLocaleString()} (${storeAnalytics?.countsByStatus?.delivered || 0} delivered orders).
-- Total Orders Tracked in System: ${storeAnalytics?.totalOrdersCount || 0} total records.
 - Average Order Value (AOV): ₱${storeAnalytics?.avgOrderValue || 0}
 - Fulfillment Completion Rate: ${storeAnalytics?.fulfillmentRate || 100}%
 - Payment Split: COD (₱${(storeAnalytics?.paymentBreakdown?.cod?.total || 0).toLocaleString()}, ${storeAnalytics?.paymentBreakdown?.cod?.count || 0} orders) | GCash (₱${(storeAnalytics?.paymentBreakdown?.gcash?.total || 0).toLocaleString()}, ${storeAnalytics?.paymentBreakdown?.gcash?.count || 0} orders).
 
-WORKING STATION LIVE PIPELINE STATUS:
-- New (Incoming): ${storeAnalytics?.countsByStatus?.new || 0}
-- Pending (Queued for confirmation): ${storeAnalytics?.countsByStatus?.pending || 0}
-- Processing (Actively Brewing right now at the Station): ${storeAnalytics?.countsByStatus?.processing || 0}
-- Shipped (Out on delivery with rider): ${storeAnalytics?.countsByStatus?.shipped || 0}
-- Delivered (Fulfilled & Completed): ${storeAnalytics?.countsByStatus?.delivered || 0}
-- Cancelled: ${storeAnalytics?.countsByStatus?.cancelled || 0}
-- Total Active Orders in Pipeline right now: ${storeAnalytics?.activeOrdersCount || 0}
+LIVE EMPLOYEE ATTENDANCE & SHIFTS (TIME-IN / TIME-OUT TRACKER):
+- Currently Present & Working Staff Count: ${storeAnalytics?.attendance?.currentlyWorkingCount || 0}
+- Active Working Crew:
+${workingStaffSummary}
+- Today's Signed-Out Shifts:
+${signedOutSummary}
 
-TOP-SELLING SPECIALTY DRINKS & PASTRIES:
-${topSellingSummary || '1. Spanish Latte - Best Seller\n2. Caramel Macchiato\n3. Cold Brew Reserve'}
+WORKING STATION OPERATIONAL PIPELINE:
+- Actively Brewing at Station (Processing): ${storeAnalytics?.countsByStatus?.processing || 0} order(s)
+- Out for Delivery with Rider (Shipped): ${storeAnalytics?.countsByStatus?.shipped || 0} order(s)
+- Queued / Incoming: ${(storeAnalytics?.countsByStatus?.pending || 0) + (storeAnalytics?.countsByStatus?.new || 0)} order(s)
+- Total Active Orders in Station right now: ${storeAnalytics?.activeOrdersCount || 0}
 
-RECENT TRACKED ORDER RECORDS (LIVE AUDIT LOG):
+TOP REVENUE-DRIVING SPECIALTY ITEMS:
+${topSellingSummary || '1. Spanish Latte\n2. Caramel Macchiato\n3. Cold Brew Reserve'}
+
+RECENT TRACKED ORDER RECORDS:
 ${trackedRecordsSummary || 'No recent orders yet.'}
 
-TARA TIMPLA COFFEE MENU & PRICING:
-Espresso & Specialty Beverages:
-- Spanish Latte (₱140 Regular 16oz / ₱165 Large 22oz) - Best Seller! Double espresso, sweetened condensed milk, velvety milk. Rich & balanced.
-- Caramel Macchiato (₱145 / ₱170) - Layered vanilla, fresh steamed/iced milk, espresso, and rich caramel drizzle.
-- Sea Salt Latte (₱150 / ₱175) - House signature iced espresso topped with thick salted cream foam.
-- Hazelnut Cream Latte (₱145 / ₱170) - Roasted hazelnut infused espresso with silky cream.
-- Cold Brew Reserve (₱130 / ₱155) - 18-hour slow-steeped Arabica blend, smooth with zero bitterness.
-- Americano Classic (₱110 / ₱135) - Bold double shot over water (Iced or Hot).
-- Matcha Cream Espresso (₱155 / ₱180) - Authentic Japanese Uji matcha layered with espresso.
-- Dark Chocolate Mocha (₱150 / ₱175) - Davao artisan chocolate melted with bold espresso.
+YOUR SPECIALIZED MISSIONS:
 
-Bakery & Pastries:
-- Fresh Butter Croissant (₱85) - Flaky, golden, baked every morning.
-- Pain au Chocolat (₱95) - Double Belgian dark chocolate batons.
-- Ube Cheese Pandesal (₱45) - Soft warm pandesal with real ube halaya & cheddar core.
-- Cinnamon Cream Roll (₱80) - Soft brioche with Saigon cinnamon glaze.
-
-Customization Options:
-- Temperature: Iced (most popular) or Hot
-- Size: 16oz (Standard) or 22oz (+₱25)
-- Sweetness: 0% (Unsweetened), 25% (Mild), 50% (Recommended / Timpla Standard), 75% (Sweet), 100% (Extra Sweet)
-- Milk Choice: Fresh Whole Milk (included), Oat Milk (+₱30), Almond Milk (+₱30)
-- Extra Espresso Shot: +₱30
-
-STORE POLICIES & DELIVERY:
-- Store Hours: 7:00 AM – 10:00 PM every day.
-- Delivery Time: 30–45 minutes freshly brewed to doorstep.
-- Payment Methods: Cash on Delivery (COD) or GCash.
-- Cancellation Policy: Orders can be cancelled ONLY while in 'new' or 'pending' stage (before barista brews). Once in 'processing' (brewing), the order cannot be cancelled anymore.
-
-YOUR CORE MISSIONS:
-
-MISSION 1: ANSWER "HOW'S THE SALES GOING?"
-When asked about sales, revenue, daily sales, earnings, or financial health:
-- Provide a clear, structured, encouraging executive sales breakdown.
+MISSION 1: ANSWER "WHAT IS THE GROWTH SALES AND REVENUE?"
+When asked about sales growth, revenue, financial performance, daily earnings, or how sales are going:
+- Provide an inspiring, data-backed financial summary.
 - Highlight:
   * Today's Sales (₱ and order count)
-  * Total Gross Store Revenue (₱)
-  * Delivered Sales (collected cash)
-  * Average Order Value (AOV)
-  * Top-selling drink rankings with units sold
-  * Payment collection split (COD vs GCash)
-- Add an upbeat remark about how the store and customer demand is doing!
+  * Day-over-day growth % (${storeAnalytics?.salesGrowthRate >= 0 ? '+' : ''}${storeAnalytics?.salesGrowthRate || 0}%)
+  * Total Gross Revenue (₱)
+  * Delivered/Realized Cash Revenue (₱)
+  * Past 7 Days Revenue (₱)
+  * Top drinks driving the most revenue
+  * Payment distribution (COD vs GCash)
+- Explain the growth momentum and financial health of Tara Timpla Coffee.
 
-MISSION 2: ANSWER ABOUT THE STORE PROGRESS & WORKING STATION PIPELINE
-When asked about store progress, operational workflow, station status, or how orders are moving:
-- Break down the live Working Station stages:
-  * Brewing right now (Processing): ${storeAnalytics?.countsByStatus?.processing || 0} order(s)
-  * Out with riders (Shipped): ${storeAnalytics?.countsByStatus?.shipped || 0} order(s)
-  * Queued / Incoming (Pending/New): ${(storeAnalytics?.countsByStatus?.pending || 0) + (storeAnalytics?.countsByStatus?.new || 0)} order(s)
-  * Successfully Completed (Delivered): ${storeAnalytics?.countsByStatus?.delivered || 0} order(s)
-  * Fulfillment rate: ${storeAnalytics?.fulfillmentRate || 100}%
-- Give a crisp overview of kitchen/station pace and delivery turnaround.
+MISSION 2: ANSWER EMPLOYEE ATTENDANCE & SHIFT TIME (TIME-IN / TIME-OUT)
+When asked "Who is working?", "Who is present?", "What time did employees sign in?", "Who signed out?", or shift queries:
+- Report the exact employees who are currently **Present and Working** on shift.
+- State the exact time they signed in (e.g. "Signed in at 8:30 AM") and their active shift duration.
+- State any employees who signed out today, their sign-out time, and total shift length.
+- If no one is clocked in, mention that all employees are currently off-shift or waiting for their next shift.
 
-MISSION 3: TRACK ALL THE RECORDS & ORDER LOOKUPS
-When asked to "track all the record", "show order records", "view transactions", "audit log", or lookup a customer's history:
-- Present the tracked records in a clean, scannable format listing:
-  * Order ID (#1234abcd)
-  * Customer Name
-  * Drink / Pastry ordered & quantity
-  * Total Price (₱)
-  * Current Live Status (NEW / PENDING / PROCESSING / SHIPPED / DELIVERED / CANCELLED)
-- If asked for a specific customer or Order ID, search the records and report their exact timeline!
-
-MISSION 4: BARISTA ORDER TAKING & CLOSING DEALS
-When customers want to order drinks:
-- Warmly confirm their drink, size (16oz or 22oz), temperature (Iced or Hot), sweetness (0-100%), and milk choice.
-- Ask for Name, Phone, and Address.
-- When confirmed, enthusiastically close the deal and output this EXACT action token:
-  [ACTION: CREATE_ORDER: {"customer_name":"...", "phone":"...", "address":"...", "landmarked":"...", "product_variant":"...", "quantity":1, "total_price":140, "payment_method":"COD"}]
-
-MISSION 5: ORDER STATUS & CANCELLATIONS
-Current candidate order context:
-${orderContext}
-- If customer asks their personal order status, check candidate order context.
-- If customer requests cancellation:
-  * If 'new' or 'pending': Approve cancellation warmly! Include [ACTION: CANCEL_ORDER] in response.
-  * If 'processing': Politely decline: "Our crew is already actively brewing and preparing your order fresh right now! Per Tara Timpla store policy, orders in PROCESSING cannot be cancelled as the drink is already in craft."
-  * If 'shipped' or 'delivered': Already on the road / completed.`;
+MISSION 3: ORDER STATUS LOOKUPS & STORE PIPELINE
+- Answer how orders are progressing in the Working Station pipeline.
+- If a customer asks about their specific order, provide the live status from the database.
+- If customer requests cancellation, verify if it is eligible (only 'new' or 'pending'). Include [ACTION: CANCEL_ORDER] if eligible.`;
 
     const promptText = `${systemPrompt}\n\nCustomer Name: "${customerName || ''}"\nCustomer Message: "${message}"`;
 
-    let response;
-    try {
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: promptText }],
-          },
-        ],
-      });
-    } catch (modelErr: any) {
-      console.warn('gemini-3.8-flash attempt failed, trying fallback:', modelErr.message);
-      response = await ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: promptText }],
-          },
-        ],
-      });
+    let aiReply: string = '';
+    const candidateModels = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-flash-latest'];
+
+    for (const modelName of candidateModels) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: promptText }],
+            },
+          ],
+        });
+        if (response && response.text) {
+          aiReply = response.text;
+          break;
+        }
+      } catch {
+        continue;
+      }
     }
 
-    const aiReply = response.text || 'Kumusta! Welcome to Tara Timpla Coffee. How may I brew up happiness for you today?';
+    if (!aiReply) {
+      throw new Error('FALLBACK_TO_LOCAL_ENGINE');
+    }
 
     let actionTaken = null;
     let updatedOrderId = null;
-    let createdOrder = null;
 
     // Check for order cancellation
     if (aiReply.includes('[ACTION: CANCEL_ORDER]') && candidateOrders.length > 0) {
@@ -568,42 +913,6 @@ ${orderContext}
       }
     }
 
-    // Check for order creation deal closed
-    const orderMatch = aiReply.match(/\[ACTION:\s*CREATE_ORDER:\s*(\{.*?\})\]/s);
-    if (orderMatch) {
-      try {
-        const orderData = JSON.parse(orderMatch[1]);
-        const { data, error } = await supabase
-          .from('orders')
-          .insert([
-            {
-              customer_name: orderData.customer_name || customerName || 'Valued Customer',
-              email: `${(orderData.customer_name || 'guest').toLowerCase().replace(/\s+/g, '')}@taratimpla.ph`,
-              phone: orderData.phone || '09123456789',
-              city: 'Metro Manila',
-              address: orderData.address || 'Delivery Address',
-              landmarked: orderData.landmarked || 'Website AI Chatbot Order',
-              product_name: 'Tara Timpla Coffee',
-              product_variant: orderData.product_variant || 'Spanish Latte (16oz, Iced, 50% Sweetness)',
-              quantity: Number(orderData.quantity) || 1,
-              total_price: Number(orderData.total_price) || 140,
-              payment_method: orderData.payment_method || 'COD',
-              status: 'new',
-            },
-          ])
-          .select()
-          .single();
-
-        if (!error && data) {
-          actionTaken = 'ORDER_CREATED';
-          createdOrder = data;
-          updatedOrderId = data.id;
-        }
-      } catch (parseErr) {
-        console.warn('Could not parse or insert AI order:', parseErr);
-      }
-    }
-
     // Clean any action tokens from user-visible reply
     const cleanedReply = aiReply
       .replace(/\[ACTION:\s*CANCEL_ORDER\]/g, '')
@@ -614,7 +923,6 @@ ${orderContext}
       reply: cleanedReply,
       actionTaken,
       updatedOrderId,
-      createdOrder,
       storeAnalytics,
       matchedOrders: candidateOrders.map((o) => ({
         id: o.id,
@@ -624,10 +932,8 @@ ${orderContext}
         total_price: o.total_price,
       })),
     });
-  } catch (error: any) {
-    console.warn('Gemini chat API error, generating intelligent local barista & sales reply:', error.message);
-    
-    // Ensure we have real store analytics for accurate intelligent answers
+  } catch {
+    // Graceful fallback to local growth & attendance intelligence engine without emitting raw error dumps
     if (!storeAnalytics) {
       try {
         storeAnalytics = await fetchStoreAnalytics();
@@ -640,47 +946,141 @@ ${orderContext}
     let reply = '';
     let actionTaken = null;
     let updatedOrderId = null;
-    let createdOrder = null;
 
     const matched = candidateOrders[0];
+    const workingList = storeAnalytics?.attendance?.currentlyWorking || [];
+    const signedOutList = storeAnalytics?.attendance?.signedOutToday || [];
 
-    // 1. SALES INQUIRY ("How's sales going?")
+    // 1. ORDER ATTEMPT - NOT INTENDED TO ORDER
     if (
+      lower.includes('i want to order') ||
+      lower.includes('can i order') ||
+      lower.includes('place order') ||
+      lower.includes('buy coffee') ||
+      lower.includes('pabili') ||
+      lower.includes('buy 1') ||
+      lower.includes('buy 2') ||
+      (lower.includes('order') && (lower.includes('spanish') || lower.includes('caramel') || lower.includes('latte') || lower.includes('croissant')))
+    ) {
+      reply = `☕ **Notice: Tara Timpla AI Growth & Revenue Analyst** 📊✨
+
+Please note: **This AI chatbot is not intended for placing coffee orders!**
+
+Our specialized role is to serve as our store's executive **Financial Growth, Sales & Revenue Analyst** and **Employee Shift & Attendance Tracker**.
+
+👉 **How to place an order:**
+Please head over to our **Working Station** or **Orders** section where our team will happily handcraft your coffee fresh!
+
+👉 **What you can ask me right here:**
+• 📈 **"What is our sales growth and revenue today?"**
+• 👥 **"Who is present and working right now?"**
+• ⏱️ **"What time did employees sign in or sign out today?"**
+• 🏆 **"Which drinks are driving the most revenue?"**
+• 🏪 **"What is the status of the barista pipeline?"**`;
+    }
+    // 2. EMPLOYEE ATTENDANCE & WORKING SHIFTS ("Who is working?", "What time they signed in?")
+    else if (
+      lower.includes('employee') ||
+      lower.includes('staff') ||
+      lower.includes('working') ||
+      lower.includes('present') ||
+      lower.includes('sign in') ||
+      lower.includes('signed in') ||
+      lower.includes('sign out') ||
+      lower.includes('signed out') ||
+      lower.includes('time in') ||
+      lower.includes('time out') ||
+      lower.includes('attendance') ||
+      lower.includes('shift') ||
+      lower.includes('who is on') ||
+      lower.includes('clock')
+    ) {
+      const activeCount = workingList.length;
+      let workingDetails = '• *No employees are currently clocked in as working.*';
+
+      if (activeCount > 0) {
+        workingDetails = workingList
+          .map(
+            (e: any, idx: number) =>
+              `  ${idx + 1}. 🟢 **${e.employeeName}** (${e.role})\n     • Status: **Present & Working**\n     • Signed in at: **${new Date(e.signInTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}** (${e.durationFormatted})`
+          )
+          .join('\n\n');
+      }
+
+      let signedOutDetails = '• *No employees have signed out yet today.*';
+      if (signedOutList.length > 0) {
+        signedOutDetails = signedOutList
+          .map(
+            (e: any, idx: number) =>
+              `  ${idx + 1}. ⚪ **${e.employeeName}** (${e.role}) — Signed out at **${new Date(e.signOutTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}** (Shift length: **${e.durationFormatted}**)`
+          )
+          .join('\n');
+      }
+
+      reply = `👥 **Tara Timpla Coffee - Employee Attendance & Shift Tracker** ⏱️☕
+
+Here is the real-time record of staff presence and working shifts:
+
+🟢 **Currently Present and Working (${activeCount} staff)**:
+${workingDetails}
+
+⚪ **Completed Shifts Today (Signed Out)**:
+${signedOutDetails}
+
+💡 *Note: Every time an employee signs into Tara Timpla Coffee, the system automatically marks them as **Present and Working** and records their exact sign-in timestamp. When they sign out, the time-out and total shift duration are saved.*`;
+    }
+    // 3. SALES GROWTH & REVENUE INQUIRY ("What is the growth sales and revenue?")
+    else if (
+      lower.includes('growth') ||
+      lower.includes('grow') ||
       lower.includes('sale') ||
       lower.includes('revenue') ||
       lower.includes('earn') ||
       lower.includes('income') ||
       lower.includes('gross') ||
-      lower.includes('how much did') ||
-      lower.includes('financial')
+      lower.includes('financial') ||
+      lower.includes('trend') ||
+      lower.includes('how much')
     ) {
       const todayRev = (storeAnalytics?.todayRevenue || 0).toLocaleString();
+      const yesterdayRev = (storeAnalytics?.yesterdayRevenue || 0).toLocaleString();
+      const growthRate = storeAnalytics?.salesGrowthRate || 0;
+      const growthDiff = storeAnalytics?.salesGrowthAmount || 0;
       const totalRev = (storeAnalytics?.totalGrossRevenue || 0).toLocaleString();
       const delivRev = (storeAnalytics?.deliveredRevenue || 0).toLocaleString();
+      const weekRev = (storeAnalytics?.weekRevenue || 0).toLocaleString();
       const topItems = (storeAnalytics?.topProducts || [])
         .slice(0, 3)
-        .map((p: any, i: number) => `   ${i + 1}. **${p.name}** - ${p.count} sold (₱${p.total.toLocaleString()})`)
+        .map((p: any, i: number) => `   ${i + 1}. **${p.name}** — ₱${p.total.toLocaleString()} (${p.count} units sold)`)
         .join('\n');
 
-      reply = `📊 **Tara Timpla Coffee - Sales & Revenue Performance** ☕✨
+      reply = `📈 **Tara Timpla Coffee - Sales Growth & Revenue Analysis** 💰✨
 
-Here is our live sales summary straight from our database:
+Here is our live financial growth breakdown:
 
-💰 **Today's Sales**: **₱${todayRev}** (${storeAnalytics?.todayOrdersCount || 0} orders today)
-📈 **Total Gross Revenue**: **₱${totalRev}** across ${storeAnalytics?.totalOrdersCount || 0} total records
-✅ **Delivered / Realized Revenue**: **₱${delivRev}**
-💳 **Average Order Value (AOV)**: **₱${storeAnalytics?.avgOrderValue || 0}**
+🚀 **Sales Growth Performance**:
+• **Day-over-Day Growth Rate**: **${growthRate >= 0 ? '+' : ''}${growthRate}%**
+• **Net Sales Growth**: **${growthDiff >= 0 ? '+' : ''}₱${growthDiff.toLocaleString()}** vs previous period
+• **Sales Momentum**: ${growthRate >= 0 ? 'Accelerating growth with strong coffee cup demand!' : 'Steady volume pace across all channels.'}
 
-🏆 **Top Selling Drinks & Items**:
+💰 **Revenue Breakdown**:
+• **Today's Revenue**: **₱${todayRev}** (${storeAnalytics?.todayOrdersCount || 0} orders today)
+• **Yesterday's Revenue**: **₱${yesterdayRev}** (${storeAnalytics?.yesterdayOrdersCount || 0} orders)
+• **Past 7 Days Revenue**: **₱${weekRev}**
+• **All-Time Gross Sales**: **₱${totalRev}** across ${storeAnalytics?.totalOrdersCount || 0} total records
+• **Delivered (Realized) Cash**: **₱${delivRev}**
+• **Average Order Value (AOV)**: **₱${storeAnalytics?.avgOrderValue || 0}**
+
+🏆 **Top Revenue Driving Drinks**:
 ${topItems || '   1. Spanish Latte\n   2. Caramel Macchiato\n   3. Cold Brew Reserve'}
 
-💵 **Payment Distribution**:
-- Cash on Delivery (COD): ₱${(storeAnalytics?.paymentBreakdown?.cod?.total || 0).toLocaleString()} (${storeAnalytics?.paymentBreakdown?.cod?.count || 0} orders)
-- GCash: ₱${(storeAnalytics?.paymentBreakdown?.gcash?.total || 0).toLocaleString()} (${storeAnalytics?.paymentBreakdown?.gcash?.count || 0} orders)
+💵 **Payment Methods**:
+• Cash on Delivery (COD): ₱${(storeAnalytics?.paymentBreakdown?.cod?.total || 0).toLocaleString()} (${storeAnalytics?.paymentBreakdown?.cod?.count || 0} orders)
+• GCash: ₱${(storeAnalytics?.paymentBreakdown?.gcash?.total || 0).toLocaleString()} (${storeAnalytics?.paymentBreakdown?.gcash?.count || 0} orders)
 
-Sales are moving briskly today! Would you like to inspect specific order records or filter by date?`;
+Would you like to know more about our staff coverage or operational fulfillment pipeline?`;
     }
-    // 2. STORE PROGRESS & WORKING STATION PIPELINE
+    // 4. STORE PROGRESS & WORKING STATION PIPELINE
     else if (
       lower.includes('progress') ||
       lower.includes('pipeline') ||
@@ -706,10 +1106,9 @@ Here is the live operational breakdown of our store orders:
 
 🚀 **Current Active Queue**: **${activeCount} orders** in progress
 🎯 **Fulfillment Success Rate**: **${rate}%**
-
-The barista bar is running smoothly! You can ask me to track any specific order or review all records anytime.`;
+👥 **Staff On Duty**: **${workingList.length} employee(s) present & working**`;
     }
-    // 3. TRACK ALL RECORDS & AUDIT LOG
+    // 5. TRACK ALL RECORDS & AUDIT LOG
     else if (
       lower.includes('record') ||
       lower.includes('history') ||
@@ -721,7 +1120,7 @@ The barista bar is running smoothly! You can ask me to track any specific order 
     ) {
       const records = (storeAnalytics?.allOrders || []).slice(0, 10);
       if (records.length === 0) {
-        reply = `📋 **Tracked Order Records**: No orders recorded in the system yet. Ready to take our first order!`;
+        reply = `📋 **Tracked Order Records**: No orders recorded in the system yet.`;
       } else {
         const recordsFormatted = records
           .map((o: any, idx: number) => {
@@ -734,12 +1133,10 @@ The barista bar is running smoothly! You can ask me to track any specific order 
 
 Total tracked records in system: **${storeAnalytics?.totalOrdersCount || records.length} orders**
 
-${recordsFormatted}
-
-💡 *Tip: You can ask me "What is the status of Joshua's order?" or provide any Order ID to track full customer history.*`;
+${recordsFormatted}`;
       }
     }
-    // 4. CANCELLATION REQUESTS
+    // 6. CANCELLATION REQUESTS
     else if (lower.includes('cancel')) {
       if (!matched) {
         reply = "☕ Tara Timpla Coffee: We'd be glad to check on that for you! Could you please provide your full name or Order ID so we can verify if it's still eligible for cancellation?";
@@ -749,7 +1146,7 @@ ${recordsFormatted}
           actionTaken = 'ORDER_CANCELLED';
           updatedOrderId = matched.id;
           reply = `☕ Tara Timpla Coffee: Yes, ${matched.customer_name}! Since your order (${matched.product_variant}) is still in ${matched.status.toUpperCase()} and our crew has not started brewing yet, we have successfully CANCELLED your order. Salamat!`;
-        } catch (e) {
+        } catch {
           reply = `☕ Tara Timpla Coffee: Your order is in ${matched.status.toUpperCase()} stage and eligible for cancellation. Processing cancellation now.`;
         }
       } else if (matched.status === 'processing') {
@@ -762,70 +1159,41 @@ ${recordsFormatted}
         reply = `☕ Tara Timpla Coffee: This order (${matched.product_variant}) was already cancelled.`;
       }
     }
-    // 5. STATUS INQUIRY
+    // 7. STATUS INQUIRY
     else if (lower.includes('status') || lower.includes('update') || lower.includes('where') || lower.includes('track')) {
       if (!matched) {
         reply = `☕ Tara Timpla Coffee: Hello! To check your order status, please tell us your name or Order ID so we can pull up your ticket from our Working Station immediately.`;
       } else {
         const item = matched.product_variant;
-        if (matched.status === 'new') {
-          reply = `☕ Tara Timpla Coffee: Hi ${matched.customer_name}! We just received your order for ${item} (Status: NEW). Our crew is queueing it up right now!`;
-        } else if (matched.status === 'pending') {
-          reply = `☕ Tara Timpla Coffee: Hi ${matched.customer_name}! Your order for ${item} is currently PENDING in our queue. If you need any adjustments or cancellation, please let us know right now before we begin brewing!`;
-        } else if (matched.status === 'processing') {
-          reply = `☕ Tara Timpla Coffee: Hi ${matched.customer_name}! Great news! Our crew is actively PREPARING and freshly brewing your ${item} right now (Status: PROCESSING). Per our store policy, your order is now locked in and cannot be cancelled.`;
-        } else if (matched.status === 'shipped') {
-          reply = `🛵 Tara Timpla Coffee: Hi ${matched.customer_name}! Your ${item} has been handed over to our delivery rider and is out for delivery (Status: SHIPPED)! Keep your phone ready.`;
-        } else if (matched.status === 'delivered') {
-          reply = `🎉 Tara Timpla Coffee: Hi ${matched.customer_name}! Your order for ${item} has been marked as DELIVERED! Enjoy every sip, and thank you for choosing Tara Timpla Coffee! ☕`;
-        } else if (matched.status === 'cancelled') {
-          reply = `❌ Tara Timpla Coffee: Hi ${matched.customer_name}, your order for ${item} is CANCELLED.`;
-        }
+        reply = `☕ Tara Timpla Coffee: Hi ${matched.customer_name}! Your order for ${item} is currently in **${matched.status.toUpperCase()}** stage.`;
       }
-    }
-    // 6. ORDER INQUIRY
-    else if (lower.includes('order') || lower.includes('buy') || lower.includes('spanish latte') || lower.includes('caramel')) {
-      reply = `☕ Tara Timpla AI Barista: I would love to get that freshly brewed for you!
-What drink would you like to order today?
-- Spanish Latte (₱140)
-- Caramel Macchiato (₱145)
-- Sea Salt Latte (₱150)
-- Cold Brew Reserve (₱130)
-
-Please let me know your preferred size (16oz or 22oz), sweetness level, and delivery address, and I will place your order directly with our barista crew!`;
-    }
-    // 7. MENU INQUIRY
-    else if (lower.includes('menu') || lower.includes('recommend') || lower.includes('best') || lower.includes('special')) {
-      reply = `☕ Tara Timpla Coffee Favorites:
-1. Spanish Latte (₱140) - Rich espresso with condensed milk, our #1 crowd favorite!
-2. Caramel Macchiato (₱145) - Layered vanilla, steamed milk, espresso & caramel drizzle.
-3. Sea Salt Latte (₱150) - Signature iced espresso topped with thick salted cream foam.
-4. Cold Brew Reserve (₱130) - Slow-steeped 18-hour Arabica blend.
-5. Butter Croissant (₱85) - Freshly baked daily.
-
-Would you like me to book an order for you right now? Just tell me what you'd like!`;
     } else {
-      reply = `☕ Tara Timpla AI Assistant: Kumusta! Welcome to Tara Timpla Coffee!
-I can answer:
-• 📊 **How's sales going?** (Today's revenue, gross sales, best sellers)
-• 📈 **Store progress & pipeline** (Brewing station, riders on delivery, queue status)
-• 📋 **Track all records** (Full order audit log & customer transaction history)
-• ☕ **Order coffee directly** (Custom sizes, sweetness, milk & delivery closure)
+      reply = `☕ **Tara Timpla AI Growth & Revenue Analyst** 📊✨
+Kumusta! I am your store's executive financial intelligence and employee shift analyst.
 
-How may I assist you today?`;
+I can answer:
+• 📈 **"What is our sales growth and revenue today?"** (Growth %, today's revenue, gross total, AOV)
+• 👥 **"Who is present and working right now?"** (Employees currently on shift, exact sign-in times)
+• ⏱️ **"What time did employees sign in or sign out?"** (Full shift timeclock log)
+• 🏆 **"Which drinks are driving the most revenue?"** (Top sales drivers)
+• 🏪 **"What is the current store progress?"** (Brewing station and delivery pipeline)
+
+*(Please note: I am not intended to take coffee orders; please place orders directly at the Working Station or Orders section!)*
+
+How may I assist your store management today?`;
     }
 
     res.json({
       reply,
       actionTaken,
       updatedOrderId,
-      createdOrder,
       storeAnalytics,
       matchedOrders: candidateOrders.map((o) => ({
         id: o.id,
         customer_name: o.customer_name,
         product_variant: o.product_variant,
         status: o.status,
+        total_price: o.total_price,
       })),
     });
   }

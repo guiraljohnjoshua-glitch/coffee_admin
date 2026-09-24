@@ -91,6 +91,17 @@ export default function Layout() {
   }, [location.pathname, loadingStatus, isOwner, navigate]);
 
   const handleLogout = async () => {
+    try {
+      if (userEmail) {
+        await fetch('/api/attendance/sign-out', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail }),
+        });
+      }
+    } catch (e) {
+      console.warn('Could not record employee sign-out:', e);
+    }
     await supabase.auth.signOut();
     navigate('/login');
   };
@@ -100,7 +111,7 @@ export default function Layout() {
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
     { name: 'Working Station', path: '/station', icon: Coffee },
     { name: 'Orders', path: '/orders', icon: Package },
-    { name: 'AI Barista & Order', path: '/ai-barista', icon: Sparkles },
+    { name: 'AI Growth & Attendance', path: '/ai-barista', icon: Sparkles },
     ...(isOwner ? [
       { name: 'Settings', path: '/settings', icon: Settings },
       { name: 'Owner Portal', path: '/owner', icon: Lock },
@@ -262,10 +273,18 @@ export default function Layout() {
             className="flex items-center gap-3 px-4 py-3 rounded-full text-[#A89B93] hover:bg-red-500/10 hover:text-red-400 transition-all font-medium text-sm w-full text-left"
           >
             <LogOut size={18} />
-            Log out
+            Sign Out Shift
           </button>
+
+          <div className="mt-4 px-3 py-2.5 rounded-xl bg-[#3A2A22]/60 border border-[rgba(255,255,255,0.06)] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              <span className="text-[11px] font-medium text-emerald-300">Present & Working</span>
+            </div>
+            <span className="text-[10px] text-[#A89B93]">Shift Logged</span>
+          </div>
           
-          <div className="mt-6 flex items-center gap-3 pt-6 border-t border-[rgba(255,255,255,0.1)]">
+          <div className="mt-4 flex items-center gap-3 pt-4 border-t border-[rgba(255,255,255,0.1)]">
             <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center text-[#2A1A12] font-bold text-xs shrink-0">
               {isOwner ? 'OW' : employeeRole === 'Delivery Member' ? 'DM' : 'CM'}
             </div>

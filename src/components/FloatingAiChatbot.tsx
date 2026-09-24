@@ -34,7 +34,7 @@ export default function FloatingAiChatbot() {
     {
       id: 'f-init',
       sender: 'bot',
-      text: '☕ Kumusta! I am your Tara Timpla AI Barista. Ask me anything about our coffee menu, order directly here, or check your live order status!',
+      text: '📈 Kumusta! I am the Tara Timpla AI Growth & Staff Attendance Analyst.\n\nI answer:\n• 💰 What is our sales growth and revenue today?\n• 👥 Who is present and working right now?\n• ⏱️ What time did employees sign in and sign out?\n\n*(Note: I am not intended for taking coffee orders — orders are crafted at the Working Station!)*',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -199,14 +199,14 @@ export default function FloatingAiChatbot() {
           <div className="bg-gradient-to-r from-[#2A1810] to-[#3D2316] border-b border-[#3D2619] p-3.5 px-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#C68A57] to-[#8C4E28] flex items-center justify-center text-white shadow-md">
-                <Coffee className="w-4 h-4" />
+                <Sparkles className="w-4 h-4" />
               </div>
               <div>
                 <h4 className="text-xs font-bold text-[#F7F4EB] font-serif flex items-center gap-1.5">
-                  <span>Tara Timpla AI Barista</span>
+                  <span>AI Growth & Attendance</span>
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 </h4>
-                <p className="text-[10px] text-[#A89B93]">Direct Website Order & Status</p>
+                <p className="text-[10px] text-[#A89B93]">Sales Growth & Shift Intelligence</p>
               </div>
             </div>
 
@@ -280,27 +280,35 @@ export default function FloatingAiChatbot() {
           <div className="p-2 border-t border-[#3D2619] bg-[#22130C] flex gap-1.5 overflow-x-auto no-scrollbar">
             <button
               onClick={() => {
-                setInputText('I want to order Spanish Latte 16oz Iced');
+                setInputText('What is the growth sales and revenue today?');
               }}
               className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
             >
-              ☕ Spanish Latte
+              📈 Growth & Revenue
             </button>
             <button
               onClick={() => {
-                setInputText('What is the status of my order?');
+                setInputText('Who is present and working right now?');
               }}
               className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
             >
-              🛵 Track Order
+              👥 Who is Working?
             </button>
             <button
               onClick={() => {
-                setInputText('What are your best sellers?');
+                setInputText('What time did employees sign in and sign out?');
               }}
               className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
             >
-              ⭐ Best Sellers
+              ⏱️ Shift Times
+            </button>
+            <button
+              onClick={() => {
+                setInputText('What are our top revenue drivers?');
+              }}
+              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
+            >
+              🏆 Top Drivers
             </button>
           </div>
 
@@ -313,7 +321,7 @@ export default function FloatingAiChatbot() {
               type="text"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Ask barista or order coffee..."
+              placeholder="Ask about sales growth, revenue, or employee shifts..."
               className="flex-1 bg-[#1A0E08] border border-[#3D2619] focus:border-[#C68A57] rounded-xl px-3 py-2 text-xs text-[#F7F4EB] outline-none placeholder-[#6B5A50]"
             />
             <button
