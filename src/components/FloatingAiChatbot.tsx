@@ -1,138 +1,80 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../lib/supabase';
-import { Order, OrderStatus } from '../types';
 import { 
   Coffee, 
   Send, 
   Sparkles, 
   X, 
-  MessageSquare, 
-  ChevronDown, 
-  CheckCircle, 
-  Truck, 
-  Clock, 
-  Bell, 
-  User, 
-  ShoppingBag,
-  Volume2,
-  VolumeX,
-  AlertCircle
+  TrendingUp,
+  Users,
+  Clock,
+  Award
 } from 'lucide-react';
+import { 
+  fetchStoreAnalytics, 
+  generateAnalystResponse, 
+  StoreAnalytics 
+} from '../lib/storeIntelligence';
 
 interface FloatingMessage {
   id: string;
   sender: 'bot' | 'customer';
   text: string;
   timestamp: string;
-  milestone?: OrderStatus;
 }
 
 export default function FloatingAiChatbot() {
   const [isOpen, setIsOpen] = useState(false);
   const [hasUnread, setHasUnread] = useState(false);
+  const [analytics, setAnalytics] = useState<StoreAnalytics | null>(null);
+
   const [messages, setMessages] = useState<FloatingMessage[]>([
     {
       id: 'f-init',
       sender: 'bot',
-      text: '📈 Kumusta! I am the Tara Timpla AI Growth & Staff Attendance Analyst.\n\nI answer:\n• 💰 What is our sales growth and revenue today?\n• 👥 Who is present and working right now?\n• ⏱️ What time did employees sign in and sign out?\n\n*(Note: I am not intended for taking coffee orders — orders are crafted at the Working Station!)*',
+      text: `📈 **Kumusta! Tara Timpla AI Growth & Shift Attendance Analyst** 📊✨
+
+I answer your questions on:
+• 💰 **Sales growth & daily revenue** (DoD growth %, today's earnings, gross revenue, AOV)
+• 👥 **Employee attendance** (Who is present & working, sign-in & sign-out times)
+
+*(⚠️ Notice: I am not intended to take coffee orders. Customer orders are crafted directly at the Working Station!)*`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
+
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [trackedOrder, setTrackedOrder] = useState<Order | null>(null);
-  const [customerName, setCustomerName] = useState('Joshua');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Load live analytics periodically
+  useEffect(() => {
+    let mounted = true;
+    const loadData = async () => {
+      try {
+        const data = await fetchStoreAnalytics();
+        if (mounted && data) {
+          setAnalytics(data);
+        }
+      } catch {
+        // silent
+      }
+    };
+
+    loadData();
+    const interval = setInterval(loadData, 8000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  // Listen to realtime order changes for tracked order
-  useEffect(() => {
-    if (!trackedOrder?.id) return;
-
-    const channel = supabase
-      .channel(`floating-tracker-${trackedOrder.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'orders',
-          filter: `id=eq.${trackedOrder.id}`,
-        },
-        (payload) => {
-          if (payload.new) {
-            handleStatusUpdate(payload.new as Order);
-          }
-        }
-      )
-      .subscribe();
-
-    const interval = setInterval(async () => {
-      try {
-        const { data } = await supabase
-          .from('orders')
-          .select('*')
-          .eq('id', trackedOrder.id)
-          .single();
-
-        if (data && data.status !== trackedOrder.status) {
-          handleStatusUpdate(data as Order);
-        }
-      } catch (e) {
-        // silent
-      }
-    }, 3000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(interval);
-    };
-  }, [trackedOrder?.id, trackedOrder?.status]);
-
-  const handleStatusUpdate = (updated: Order) => {
-    if (updated.status === trackedOrder?.status) return;
-
-    setTrackedOrder(updated);
-    if (!isOpen) setHasUnread(true);
-
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const name = updated.customer_name || customerName || 'Valued Customer';
-    const shortId = updated.id.slice(0, 8);
-    const item = updated.product_variant;
-
-    let text = '';
-    if (updated.status === 'pending') {
-      text = `📋 Order #${shortId} is now PENDING in our barista queue!`;
-    } else if (updated.status === 'processing') {
-      text = `☕ Great news! Our crew just began freshly brewing your ${item} at the Working Station! (Status: Processing - Locked in).`;
-    } else if (updated.status === 'shipped') {
-      text = `🛵 Out for Delivery! Handed over to rider for delivery to ${updated.address || 'your address'}.`;
-    } else if (updated.status === 'delivered') {
-      text = `🎉 YOUR ORDER HAS BEEN DELIVERED! ☕✨\n\nThank you so much, ${name}, for choosing Tara Timpla Coffee! We hope every sip brings warmth and joy today. Salamat po! ❤️`;
-    } else if (updated.status === 'cancelled') {
-      text = `❌ Order #${shortId} has been cancelled. If you need assistance or a refund, please message us anytime!`;
-    }
-
-    if (text) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `status-${Date.now()}`,
-          sender: 'bot',
-          text,
-          timestamp: time,
-          milestone: updated.status,
-        },
-      ]);
-    }
-  };
-
-  const handleSend = async (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.FormEvent, customText?: string) => {
     if (e) e.preventDefault();
-    const text = inputText.trim();
+    const text = (customText || inputText).trim();
     if (!text) return;
 
     const userMsg: FloatingMessage = {
@@ -146,25 +88,39 @@ export default function FloatingAiChatbot() {
     setInputText('');
     setIsTyping(true);
 
+    // Refresh analytics in background for fresh calculations
+    let currentAnalytics = analytics;
+    try {
+      currentAnalytics = await fetchStoreAnalytics();
+      setAnalytics(currentAnalytics);
+    } catch {
+      // ignore
+    }
+
     try {
       const res = await fetch('/api/gemini/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: text,
-          customerName,
-          orderId: trackedOrder?.id,
         }),
       });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
 
       const data = await res.json();
       setIsTyping(false);
 
-      if (data.actionTaken === 'ORDER_CREATED' && data.createdOrder) {
-        setTrackedOrder(data.createdOrder as Order);
-      }
-      if (data.actionTaken === 'ORDER_CANCELLED' && trackedOrder) {
-        setTrackedOrder({ ...trackedOrder, status: 'cancelled' });
+      let botReply = data.reply;
+      // Double check reply: if reply contains ordering phrase or empty, use verified analyst engine
+      if (
+        !botReply ||
+        botReply.toLowerCase().includes('what can i brew') ||
+        botReply.toLowerCase().includes('ready to take your order')
+      ) {
+        botReply = generateAnalystResponse(text, currentAnalytics);
       }
 
       setMessages((prev) => [
@@ -172,18 +128,21 @@ export default function FloatingAiChatbot() {
         {
           id: `b-${Date.now()}`,
           sender: 'bot',
-          text: data.reply || 'Tara Timpla Coffee is happy to help! What else can I brew for you?',
+          text: botReply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
     } catch (err) {
+      // Seamlessly fallback on Vercel or offline to client-side Store Intelligence engine
       setIsTyping(false);
+      const fallbackReply = generateAnalystResponse(text, currentAnalytics);
+
       setMessages((prev) => [
         ...prev,
         {
-          id: `b-err-${Date.now()}`,
+          id: `b-fb-${Date.now()}`,
           sender: 'bot',
-          text: '☕ Kumusta po! I am ready to take your order or check your delivery status.',
+          text: fallbackReply,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);
@@ -194,9 +153,9 @@ export default function FloatingAiChatbot() {
     <div className="fixed bottom-5 right-5 z-40">
       {/* Floating Chat Drawer */}
       {isOpen && (
-        <div className="mb-3 w-[360px] sm:w-[390px] h-[520px] bg-[#22130C] border border-[#C68A57]/40 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
+        <div className="mb-3 w-[360px] sm:w-[400px] h-[540px] bg-[#22130C] border border-[#C68A57]/40 rounded-3xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-5 duration-200">
           {/* Top Bar */}
-          <div className="bg-gradient-to-r from-[#2A1810] to-[#3D2316] border-b border-[#3D2619] p-3.5 px-4 flex items-center justify-between">
+          <div className="bg-gradient-to-r from-[#2A1810] to-[#3D2316] border-b border-[#3D2619] p-3 px-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#C68A57] to-[#8C4E28] flex items-center justify-center text-white shadow-md">
                 <Sparkles className="w-4 h-4" />
@@ -218,20 +177,20 @@ export default function FloatingAiChatbot() {
             </button>
           </div>
 
-          {/* Active order quick ticker */}
-          {trackedOrder && (
-            <div className="bg-[#1A0E08] px-3 py-1.5 border-b border-white/5 flex items-center justify-between text-[11px]">
-              <div className="flex items-center gap-1.5 text-[#E8B688] font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />
-                <span>Order #{trackedOrder.id.slice(0, 8)}</span>
-              </div>
-              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-[#C68A57]/20 text-[#E8B688] border border-[#C68A57]/30">
-                {trackedOrder.status}
-              </span>
+          {/* Quick Metrics Bar */}
+          <div className="bg-[#1A0E08] px-3 py-1.5 border-b border-white/5 flex items-center justify-between text-[11px] text-[#A89B93]">
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="w-3 h-3 text-emerald-400" />
+              <span>Today: <strong className="text-emerald-400">₱{(analytics?.todayRevenue || 0).toLocaleString()}</strong></span>
+              <span className="text-[10px] text-[#C68A57]">({analytics?.salesGrowthRate !== undefined && analytics.salesGrowthRate >= 0 ? '+' : ''}{analytics?.salesGrowthRate || 0}%)</span>
             </div>
-          )}
+            <div className="flex items-center gap-1">
+              <Users className="w-3 h-3 text-[#E8B688]" />
+              <span><strong className="text-[#F7F4EB]">{analytics?.attendance?.currentlyWorkingCount || 0}</strong> On Shift</span>
+            </div>
+          </div>
 
-          {/* Messages */}
+          {/* Messages Container */}
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3 bg-[#1A0F0A]">
             {messages.map((m) => (
               <div
@@ -240,19 +199,13 @@ export default function FloatingAiChatbot() {
               >
                 {m.sender === 'bot' && (
                   <div className="w-6 h-6 rounded-lg bg-[#C68A57] text-white flex items-center justify-center text-[10px] shrink-0 mt-0.5">
-                    ☕
+                    📊
                   </div>
                 )}
                 <div
-                  className={`max-w-[82%] p-2.5 rounded-2xl text-xs leading-relaxed whitespace-pre-line shadow-sm ${
+                  className={`max-w-[85%] p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-line shadow-sm ${
                     m.sender === 'customer'
                       ? 'bg-[#C68A57] text-white rounded-br-none'
-                      : m.milestone === 'delivered'
-                      ? 'bg-emerald-950/90 text-emerald-100 border border-emerald-500/40 rounded-bl-none font-medium'
-                      : m.milestone === 'cancelled'
-                      ? 'bg-red-950/90 text-red-100 border border-red-500/40 rounded-bl-none'
-                      : m.milestone === 'processing'
-                      ? 'bg-purple-950/90 text-purple-100 border border-purple-500/40 rounded-bl-none'
                       : 'bg-[#2A1810] text-[#F7F4EB] border border-[#3D2619] rounded-bl-none'
                   }`}
                 >
@@ -264,7 +217,7 @@ export default function FloatingAiChatbot() {
             {isTyping && (
               <div className="flex gap-2 justify-start items-center">
                 <div className="w-6 h-6 rounded-lg bg-[#C68A57] text-white flex items-center justify-center text-[10px] shrink-0">
-                  ☕
+                  📊
                 </div>
                 <div className="bg-[#2A1810] border border-[#3D2619] rounded-xl px-3 py-1.5 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#C68A57] animate-bounce" />
@@ -276,43 +229,39 @@ export default function FloatingAiChatbot() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Quick chips */}
+          {/* Quick Action Chips */}
           <div className="p-2 border-t border-[#3D2619] bg-[#22130C] flex gap-1.5 overflow-x-auto no-scrollbar">
             <button
-              onClick={() => {
-                setInputText('What is the growth sales and revenue today?');
-              }}
-              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
+              onClick={() => handleSend(undefined, 'What is the growth sales and revenue today?')}
+              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30 flex items-center gap-1"
             >
-              📈 Growth & Revenue
+              <TrendingUp className="w-2.5 h-2.5" />
+              <span>Growth & Revenue</span>
             </button>
             <button
-              onClick={() => {
-                setInputText('Who is present and working right now?');
-              }}
-              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
+              onClick={() => handleSend(undefined, 'Who is present and working right now?')}
+              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30 flex items-center gap-1"
             >
-              👥 Who is Working?
+              <Users className="w-2.5 h-2.5" />
+              <span>Who is Working?</span>
             </button>
             <button
-              onClick={() => {
-                setInputText('What time did employees sign in and sign out?');
-              }}
-              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
+              onClick={() => handleSend(undefined, 'What time did employees sign in and sign out today?')}
+              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30 flex items-center gap-1"
             >
-              ⏱️ Shift Times
+              <Clock className="w-2.5 h-2.5" />
+              <span>Shift Times</span>
             </button>
             <button
-              onClick={() => {
-                setInputText('What are our top revenue drivers?');
-              }}
-              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30"
+              onClick={() => handleSend(undefined, 'Which drinks are driving the most revenue growth?')}
+              className="shrink-0 px-2 py-1 rounded-lg bg-[#2F1D13] hover:bg-[#3D2619] text-[10px] text-[#E8B688] border border-[#C68A57]/30 flex items-center gap-1"
             >
-              🏆 Top Drivers
+              <Award className="w-2.5 h-2.5" />
+              <span>Top Drivers</span>
             </button>
           </div>
 
-          {/* Input */}
+          {/* Message Input */}
           <form
             onSubmit={handleSend}
             className="p-2.5 border-t border-[#3D2619] bg-[#2A1810] flex items-center gap-2"
@@ -327,7 +276,7 @@ export default function FloatingAiChatbot() {
             <button
               type="submit"
               disabled={!inputText.trim() || isTyping}
-              className="p-2 rounded-xl bg-[#C68A57] text-white disabled:opacity-40"
+              className="p-2 rounded-xl bg-[#C68A57] text-white disabled:opacity-40 hover:bg-[#B57A47] transition-colors"
             >
               <Send className="w-3.5 h-3.5" />
             </button>
@@ -343,7 +292,7 @@ export default function FloatingAiChatbot() {
         }}
         className="relative group p-4 rounded-full bg-gradient-to-r from-[#C68A57] to-[#8C4E28] text-white shadow-2xl hover:scale-105 active:scale-95 transition-all border-2 border-[#E8B688]/40 flex items-center justify-center"
       >
-        <Coffee className="w-6 h-6 group-hover:rotate-12 transition-transform" />
+        <Sparkles className="w-6 h-6 group-hover:rotate-12 transition-transform" />
         
         {/* Unread indicator */}
         {hasUnread && (
@@ -352,7 +301,7 @@ export default function FloatingAiChatbot() {
           </span>
         )}
 
-        <span className="sr-only">Open Tara Timpla AI Barista Chat</span>
+        <span className="sr-only">Open Tara Timpla AI Growth & Attendance Chat</span>
       </button>
     </div>
   );

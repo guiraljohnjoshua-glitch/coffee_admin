@@ -952,16 +952,35 @@ MISSION 3: ORDER STATUS LOOKUPS & STORE PIPELINE
     const signedOutList = storeAnalytics?.attendance?.signedOutToday || [];
 
     // 1. ORDER ATTEMPT - NOT INTENDED TO ORDER
-    if (
-      lower.includes('i want to order') ||
-      lower.includes('can i order') ||
-      lower.includes('place order') ||
-      lower.includes('buy coffee') ||
+    const isOrderQuery =
+      lower.includes('order') ||
+      lower.includes('buy') ||
       lower.includes('pabili') ||
-      lower.includes('buy 1') ||
-      lower.includes('buy 2') ||
-      (lower.includes('order') && (lower.includes('spanish') || lower.includes('caramel') || lower.includes('latte') || lower.includes('croissant')))
-    ) {
+      lower.includes('pa-order') ||
+      lower.includes('pa order') ||
+      lower.includes('want coffee') ||
+      lower.includes('drink') ||
+      lower.includes('latte') ||
+      lower.includes('croissant') ||
+      lower.includes('macchiato');
+
+    const isMetricsQuery =
+      lower.includes('growth') ||
+      lower.includes('revenue') ||
+      lower.includes('sales') ||
+      lower.includes('attendance') ||
+      lower.includes('shift') ||
+      lower.includes('present') ||
+      lower.includes('working') ||
+      lower.includes('sign in') ||
+      lower.includes('sign out') ||
+      lower.includes('time in') ||
+      lower.includes('time out') ||
+      lower.includes('top') ||
+      lower.includes('record') ||
+      lower.includes('audit');
+
+    if (isOrderQuery && !isMetricsQuery) {
       reply = `☕ **Notice: Tara Timpla AI Growth & Revenue Analyst** 📊✨
 
 Please note: **This AI chatbot is not intended for placing coffee orders!**
@@ -969,7 +988,7 @@ Please note: **This AI chatbot is not intended for placing coffee orders!**
 Our specialized role is to serve as our store's executive **Financial Growth, Sales & Revenue Analyst** and **Employee Shift & Attendance Tracker**.
 
 👉 **How to place an order:**
-Please head over to our **Working Station** or **Orders** section where our team will happily handcraft your coffee fresh!
+Please head over to our **Working Station** or **Orders** section where our barista crew will happily handcraft your coffee fresh!
 
 👉 **What you can ask me right here:**
 • 📈 **"What is our sales growth and revenue today?"**

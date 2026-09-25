@@ -19,6 +19,7 @@ import {
 import { useState, useEffect } from 'react';
 import { cn } from '../lib/utils';
 import FloatingAiChatbot from './FloatingAiChatbot';
+import { recordEmployeeSignOut } from '../lib/storeIntelligence';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -93,11 +94,7 @@ export default function Layout() {
   const handleLogout = async () => {
     try {
       if (userEmail) {
-        await fetch('/api/attendance/sign-out', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: userEmail }),
-        });
+        await recordEmployeeSignOut(userEmail);
       }
     } catch (e) {
       console.warn('Could not record employee sign-out:', e);

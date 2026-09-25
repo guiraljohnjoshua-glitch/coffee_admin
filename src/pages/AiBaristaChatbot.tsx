@@ -12,65 +12,26 @@ import {
   FileText, 
   Search, 
   DollarSign, 
-  Activity,
-  Users,
-  UserCheck,
-  LogOut,
-  LogIn,
-  AlertCircle,
-  Store,
-  RefreshCw,
-  ChevronRight,
-  ShieldCheck,
-  Calendar
+  Activity, 
+  Users, 
+  UserCheck, 
+  LogOut, 
+  LogIn, 
+  AlertCircle, 
+  Store, 
+  RefreshCw, 
+  ChevronRight, 
+  ShieldCheck, 
+  Calendar 
 } from 'lucide-react';
-
-interface AttendanceRecord {
-  id: string;
-  email: string;
-  employeeName: string;
-  role: string;
-  status: 'present_working' | 'signed_out';
-  signInTime: string;
-  signOutTime?: string;
-  created_at: string;
-}
-
-interface StoreAnalytics {
-  totalOrdersCount: number;
-  totalGrossRevenue: number;
-  deliveredRevenue: number;
-  todayRevenue: number;
-  todayOrdersCount: number;
-  yesterdayRevenue: number;
-  salesGrowthPercent: number;
-  salesGrowthRevenueChange: number;
-  countsByStatus: {
-    new: number;
-    pending: number;
-    processing: number;
-    shipped: number;
-    delivered: number;
-    cancelled: number;
-  };
-  activeOrdersCount: number;
-  avgOrderValue: number;
-  fulfillmentRate: number;
-  topProducts: { name: string; count: number; total: number }[];
-  paymentBreakdown: {
-    cod: { count: number; total: number };
-    gcash: { count: number; total: number };
-  };
-  allOrders: Order[];
-  attendance?: {
-    totalSignedToday: number;
-    currentlyWorkingCount: number;
-    signedOutCount: number;
-    currentlyWorking: AttendanceRecord[];
-    signedOutToday: AttendanceRecord[];
-    allAttendance: AttendanceRecord[];
-  };
-}
+import {
+  StoreAnalytics,
+  AttendanceRecord,
+  fetchStoreAnalytics,
+  recordEmployeeSignIn,
+  recordEmployeeSignOut,
+  generateAnalystResponse,
+} from '../lib/storeIntelligence';
 
 // Markdown-like text renderer for clean financial and shift intelligence responses
 function FormattedBotText({ text }: { text: string }) {
@@ -181,10 +142,9 @@ How may I assist your store review today?`,
   // Periodic fetcher for store analytics and attendance
   const fetchAnalytics = async () => {
     try {
-      const res = await fetch('/api/store/analytics');
-      const data = await res.json();
-      if (data.success && data.analytics) {
-        setStoreAnalytics(data.analytics);
+      const data = await fetchStoreAnalytics();
+      if (data) {
+        setStoreAnalytics(data);
       }
     } catch (e) {
       // silent
@@ -208,34 +168,26 @@ How may I assist your store review today?`,
     setPunchFeedback(null);
 
     try {
-      const endpoint = action === 'sign-in' ? '/api/attendance/sign-in' : '/api/attendance/sign-out';
-      const bodyData = action === 'sign-in' 
-        ? {
-            email: punchEmail.trim().toLowerCase(),
-            employeeName: punchName.trim() || punchEmail.split('@')[0],
-            role: punchRole
-          }
-        : {
-            email: punchEmail.trim().toLowerCase()
-          };
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyData),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        const timeNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setPunchFeedback(
-          action === 'sign-in'
-            ? `✅ Recorded: ${data.record?.employeeName} is now Present & Working (Signed in at ${timeNow})`
-            : `🚪 Recorded: ${data.record?.employeeName} Signed Out at ${timeNow}`
+      if (action === 'sign-in') {
+        const result = await recordEmployeeSignIn(
+          punchEmail.trim().toLowerCase(),
+          punchName.trim() || punchEmail.split('@')[0],
+          punchRole
         );
-        fetchAnalytics();
+        if (result.success) {
+          setPunchFeedback(result.message);
+          fetchAnalytics();
+        } else {
+          setPunchFeedback(result.message || 'Failed to record sign-in');
+        }
       } else {
-        setPunchFeedback(data.error || 'Failed to update attendance');
+        const result = await recordEmployeeSignOut(punchEmail.trim().toLowerCase());
+        if (result.success) {
+          setPunchFeedback(result.message);
+          fetchAnalytics();
+        } else {
+          setPunchFeedback(result.message || 'Failed to record sign-out');
+        }
       }
     } catch (e: any) {
       setPunchFeedback(e.message || 'Network error');
@@ -260,6 +212,15 @@ How may I assist your store review today?`,
     setInputMessage('');
     setIsTyping(true);
 
+    // Refresh analytics to ensure most current calculations
+    let currentAnalytics = storeAnalytics;
+    try {
+      currentAnalytics = await fetchStoreAnalytics();
+      setStoreAnalytics(currentAnalytics);
+    } catch {
+      // ignore
+    }
+
     try {
       const response = await fetch('/api/gemini/chat', {
         method: 'POST',
@@ -269,6 +230,10 @@ How may I assist your store review today?`,
         }),
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
       const data = await response.json();
       setIsTyping(false);
 
@@ -277,24 +242,35 @@ How may I assist your store review today?`,
       }
 
       const botTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      let replyText = data.reply;
+
+      // Validate that reply adheres to no-order rule
+      if (
+        !replyText ||
+        replyText.toLowerCase().includes('what can i brew') ||
+        replyText.toLowerCase().includes('ready to take your order')
+      ) {
+        replyText = generateAnalystResponse(text, currentAnalytics);
+      }
 
       setMessages((prev) => [
         ...prev,
         {
           id: `bot-${Date.now()}`,
           sender: 'bot',
-          text: data.reply || 'Tara Timpla AI Growth & Shift Attendance Analyst is here to assist.',
+          text: replyText,
           timestamp: botTime,
         },
       ]);
     } catch (err: any) {
       setIsTyping(false);
+      const fallbackText = generateAnalystResponse(text, currentAnalytics);
       setMessages((prev) => [
         ...prev,
         {
-          id: `err-${Date.now()}`,
+          id: `bot-${Date.now()}`,
           sender: 'bot',
-          text: `📊 Tara Timpla AI Analyst: Kumusta po! Today's recorded revenue is ₱${(storeAnalytics?.todayRevenue || 0).toLocaleString()} with ${storeAnalytics?.attendance?.currentlyWorkingCount || 0} employees currently present & working. How else can I assist?`,
+          text: fallbackText,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         },
       ]);

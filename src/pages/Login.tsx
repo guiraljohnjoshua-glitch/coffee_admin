@@ -2,6 +2,7 @@ import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { normalizeEmployeeIdentifier, formatDisplayName } from '../lib/authUtils';
+import { recordEmployeeSignIn } from '../lib/storeIntelligence';
 import { Package, Eye, EyeOff } from 'lucide-react';
 
 export default function Login() {
@@ -109,15 +110,7 @@ export default function Login() {
         // If logged in as owner, record sign in & proceed directly
         if (normalizedEmail === 'johnjoshuaguiral12@gmail.com') {
           try {
-            await fetch('/api/attendance/sign-in', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                email: normalizedEmail,
-                employeeName: 'Store Owner',
-                role: 'Owner'
-              })
-            });
+            await recordEmployeeSignIn(normalizedEmail, 'Store Owner', 'Owner');
           } catch (e) {
             console.warn('Could not record owner sign in:', e);
           }
@@ -152,15 +145,11 @@ export default function Login() {
           // Approved and assigned! Record employee present & working attendance with exact time
           try {
             const displayName = formatDisplayName(normalizedEmail);
-            await fetch('/api/attendance/sign-in', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                email: normalizedEmail,
-                employeeName: displayName,
-                role: employeeData.city || 'Crew Member'
-              })
-            });
+            await recordEmployeeSignIn(
+              normalizedEmail,
+              displayName,
+              employeeData.city || 'Crew Member'
+            );
           } catch (e) {
             console.warn('Could not record employee sign-in:', e);
           }
